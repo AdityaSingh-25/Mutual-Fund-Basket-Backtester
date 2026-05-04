@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS baskets (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS basket_items (
+    id SERIAL PRIMARY KEY,
+    basket_id INTEGER REFERENCES baskets(id),
+    fund_id INTEGER REFERENCES funds(id),
+    weight NUMERIC NOT NULL
+);

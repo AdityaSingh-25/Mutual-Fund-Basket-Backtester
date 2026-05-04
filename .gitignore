@@ -1,0 +1,17 @@
+# Binaries
+*.exe
+*.out
+*.test
+
+# Go build
+/bin/
+/vendor/
+
+# Env files (IMPORTANT)
+.env
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode/
