@@ -1,15 +1,28 @@
 package main
 
 import (
+	"log"
+
 	"MFBasketBacktester/config"
-	"fmt"
+	"MFBasketBacktester/internal/db"
 )
 
 func main() {
 	cfg := config.LoadConfig()
 
-	fmt.Println("Config Loaded:")
-	fmt.Println("DB:", cfg.DBUrl)
-	fmt.Println("Redis:", cfg.RedisUrl)
-	fmt.Println("Port:", cfg.Port)
+	db.InitDB(cfg.DBUrl)
+
+	basketID, err := db.InsertBasket("Test Basket")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Println("Inserted Basket ID:", basketID)
+
+	basket, err := db.GetBasket(basketID)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Println("Fetched Basket:", basket.Name)
 }
