@@ -15,3 +15,6 @@
 
 # IDE
 .vscode/
+
+# Claude Code
+.claude/
