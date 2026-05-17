@@ -16,19 +16,18 @@ import (
 
 const dateLayout = "2006-01-02"
 
-// Run simulates a lump-sum investment of amount into the given basket at
-// startDate and holds it until endDate, returning CAGR, XIRR, max drawdown
-// and the final portfolio value.
-//
-// Each fund's units are bought at its first available NAV on or after the
-// common start date; portfolio value on any later date is the sum of each
-// fund's units valued at its most recent NAV (forward-filled).
+// FundInput is one fund's basket allocation paired with its NAV history.
+// Records must be sorted by date ascending.
+type FundInput struct {
+	Label   string // human-readable identifier used in error messages
+	Weight  float64
+	Records []models.NAVRecord
+}
+
+// Run simulates a lump-sum investment of amount into the given basket between
+// startDate and endDate (both YYYY-MM-DD), loading NAV data from the database.
 func Run(basketID int, startDate, endDate string, amount float64) (models.BacktestResult, error) {
 	var result models.BacktestResult
-
-	if amount <= 0 {
-		return result, errors.New("amount must be positive")
-	}
 
 	start, err := time.Parse(dateLayout, startDate)
 	if err != nil {
@@ -50,55 +49,74 @@ func Run(basketID int, startDate, endDate string, amount float64) (models.Backte
 		return result, errors.New("basket has no funds")
 	}
 
-	totalWeight := 0.0
-	for _, it := range items {
-		if it.Weight < 0 {
-			return result, errors.New("fund weight cannot be negative")
-		}
-		totalWeight += it.Weight
-	}
-	if totalWeight <= 0 {
-		return result, errors.New("basket weights sum to zero")
-	}
-
-	// Load NAV history for every fund and find the common start date —
-	// the latest date on which all funds first have data.
-	type fundSeries struct {
-		records []models.NAVRecord
-		weight  float64 // normalised to sum to 1 across the basket
-	}
-	series := make([]fundSeries, 0, len(items))
-	var effectiveStart time.Time
-
+	funds := make([]FundInput, 0, len(items))
 	for _, it := range items {
 		records, err := db.GetNAVHistory(it.FundID, startDate, endDate)
 		if err != nil {
 			return result, err
 		}
-		if len(records) == 0 {
-			return result, fmt.Errorf("fund %d has no NAV data in the requested range", it.FundID)
-		}
-		series = append(series, fundSeries{
-			records: records,
-			weight:  it.Weight / totalWeight,
+		funds = append(funds, FundInput{
+			Label:   fmt.Sprintf("fund %d", it.FundID),
+			Weight:  it.Weight,
+			Records: records,
 		})
-		if first := records[0].Date; first.After(effectiveStart) {
+	}
+
+	return Simulate(funds, amount)
+}
+
+// Simulate is the pure, database-free core of a backtest. It values a lump-sum
+// investment of amount, split across funds by normalised weight, from the
+// common start date (the latest date on which every fund first has data)
+// through the last observation, and reports CAGR, XIRR, max drawdown and the
+// final portfolio value.
+//
+// Each fund's units are fixed at the common start date; portfolio value on any
+// later date is the sum of each fund's units valued at its most recent NAV
+// (forward-filled).
+func Simulate(funds []FundInput, amount float64) (models.BacktestResult, error) {
+	var result models.BacktestResult
+
+	if amount <= 0 {
+		return result, errors.New("amount must be positive")
+	}
+	if len(funds) == 0 {
+		return result, errors.New("no funds provided")
+	}
+
+	totalWeight := 0.0
+	for _, f := range funds {
+		if f.Weight < 0 {
+			return result, errors.New("fund weight cannot be negative")
+		}
+		totalWeight += f.Weight
+	}
+	if totalWeight <= 0 {
+		return result, errors.New("basket weights sum to zero")
+	}
+
+	// Find the common start date — the latest date on which all funds first
+	// have data — and reject funds with no usable data.
+	var effectiveStart time.Time
+	for _, f := range funds {
+		if len(f.Records) == 0 {
+			return result, fmt.Errorf("%s has no NAV data in the requested range", f.Label)
+		}
+		if first := f.Records[0].Date; first.After(effectiveStart) {
 			effectiveStart = first
 		}
 	}
-
-	// Reject funds whose data ends before the common start date.
-	for i, s := range series {
-		if last := s.records[len(s.records)-1].Date; last.Before(effectiveStart) {
-			return result, fmt.Errorf("fund %d has no NAV data after %s",
-				items[i].FundID, effectiveStart.Format(dateLayout))
+	for _, f := range funds {
+		if last := f.Records[len(f.Records)-1].Date; last.Before(effectiveStart) {
+			return result, fmt.Errorf("%s has no NAV data after %s",
+				f.Label, effectiveStart.Format(dateLayout))
 		}
 	}
 
 	// Union of all observation dates on or after the common start.
 	dateSet := make(map[time.Time]struct{})
-	for _, s := range series {
-		for _, r := range s.records {
+	for _, f := range funds {
+		for _, r := range f.Records {
 			if !r.Date.Before(effectiveStart) {
 				dateSet[r.Date] = struct{}{}
 			}
@@ -116,29 +134,28 @@ func Run(basketID int, startDate, endDate string, amount float64) (models.Backte
 
 	// Walk the timeline, forward-filling each fund's NAV, and build the
 	// portfolio value series. Units are fixed at the common start date.
-	pointers := make([]int, len(series))
-	units := make([]float64, len(series))
+	pointers := make([]int, len(funds))
+	units := make([]float64, len(funds))
 	values := make([]float64, 0, len(dates))
 
 	for di, date := range dates {
 		total := 0.0
-		for si := range series {
-			recs := series[si].records
-			p := pointers[si]
+		for fi := range funds {
+			recs := funds[fi].Records
+			p := pointers[fi]
 			for p+1 < len(recs) && !recs[p+1].Date.After(date) {
 				p++
 			}
-			pointers[si] = p
+			pointers[fi] = p
 
 			nav := recs[p].NAV
 			if di == 0 {
 				if nav <= 0 {
-					return result, fmt.Errorf("fund %d has a non-positive NAV at start",
-						items[si].FundID)
+					return result, fmt.Errorf("%s has a non-positive NAV at start", funds[fi].Label)
 				}
-				units[si] = (amount * series[si].weight) / nav
+				units[fi] = (amount * funds[fi].Weight / totalWeight) / nav
 			}
-			total += units[si] * nav
+			total += units[fi] * nav
 		}
 		values = append(values, total)
 	}
