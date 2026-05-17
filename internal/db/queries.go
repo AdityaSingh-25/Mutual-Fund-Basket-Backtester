@@ -41,6 +41,61 @@ func InsertBasketItem(basketID int, fundID int, weight float64) error {
 	return err
 }
 
+func GetBasketItems(basketID int) ([]models.BasketItem, error) {
+	rows, err := DB.Query(`
+		SELECT id, basket_id, fund_id, weight
+		FROM basket_items
+		WHERE basket_id = $1
+		ORDER BY id ASC
+	`, basketID)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []models.BasketItem
+
+	for rows.Next() {
+		var item models.BasketItem
+
+		err := rows.Scan(
+			&item.ID,
+			&item.BasketID,
+			&item.FundID,
+			&item.Weight,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		items = append(items, item)
+	}
+
+	return items, rows.Err()
+}
+
+func GetFund(id int) (models.Fund, error) {
+	var fund models.Fund
+
+	err := DB.QueryRow(`
+		SELECT id, scheme_code, scheme_name,
+		       COALESCE(fund_house, ''), COALESCE(scheme_type, ''), created_at
+		FROM funds
+		WHERE id = $1
+	`, id).Scan(
+		&fund.ID,
+		&fund.SchemeCode,
+		&fund.SchemeName,
+		&fund.FundHouse,
+		&fund.SchemeType,
+		&fund.CreatedAt,
+	)
+
+	return fund, err
+}
+
 func GetNAVHistory(fundID int, startDate string, endDate string) ([]models.NAVRecord, error) {
 	rows, err := DB.Query(`
 		SELECT date, nav
