@@ -10,7 +10,7 @@ import (
 	"MFBasketBacktester/internal/db"
 )
 
-const AMFIURL = "https://www.amfiindia.com/spages/NAVAll.txt"
+const AMFIURL = "https://portal.amfiindia.com/spages/NAVAll.txt"
 
 func FetchAndStoreNAV() {
 	resp, err := http.Get(AMFIURL)
@@ -27,7 +27,9 @@ func FetchAndStoreNAV() {
 
 		parts := strings.Split(line, ";")
 
-		if len(parts) < 5 {
+		// A valid NAV line has 6 fields: scheme code, two ISINs, scheme
+		// name, NAV, and date. Section headers and blank lines have fewer.
+		if len(parts) < 6 {
 			continue
 		}
 
@@ -43,9 +45,10 @@ func FetchAndStoreNAV() {
 			continue
 		}
 
-		date := ""
-		if len(parts) > 7 {
-			date = parts[7]
+		// Date is the final field; TrimSpace also drops any trailing CR.
+		date := strings.TrimSpace(parts[5])
+		if date == "" {
+			continue
 		}
 
 		var fundID int
@@ -65,7 +68,7 @@ func FetchAndStoreNAV() {
 
 		_, err = db.DB.Exec(`
 			INSERT INTO nav (fund_id, nav, date)
-			VALUES ($1, $2, TO_DATE($3, '02-Jan-2006'))
+			VALUES ($1, $2, TO_DATE($3, 'DD-Mon-YYYY'))
 			ON CONFLICT (fund_id, date)
 			DO NOTHING
 		`, fundID, navValue, date)

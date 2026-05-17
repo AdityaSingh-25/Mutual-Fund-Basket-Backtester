@@ -42,6 +42,10 @@ func (h *Handlers) GetSummary(w http.ResponseWriter, r *http.Request) {
 	if cached, err := cache.GetBacktestResult(key); err == nil && cached != nil {
 		result = *cached
 	} else {
+		if err := ensureBasketHistory(req.BasketID); err != nil {
+			writeError(w, http.StatusBadGateway, "could not load fund history: "+err.Error())
+			return
+		}
 		result, err = backtest.Run(req.BasketID, req.StartDate, req.EndDate, req.Amount)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())

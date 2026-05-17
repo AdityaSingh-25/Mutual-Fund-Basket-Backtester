@@ -7,6 +7,8 @@ import (
 
 	"MFBasketBacktester/internal/backtest"
 	"MFBasketBacktester/internal/cache"
+	"MFBasketBacktester/internal/db"
+	"MFBasketBacktester/internal/ingestion"
 	"MFBasketBacktester/internal/models"
 )
 
@@ -14,6 +16,21 @@ import (
 func cacheKey(req models.BacktestRequest) string {
 	return fmt.Sprintf("backtest:%d:%s:%s:%.2f",
 		req.BasketID, req.StartDate, req.EndDate, req.Amount)
+}
+
+// ensureBasketHistory backfills full NAV history for every fund in a basket
+// that lacks it, so the backtest engine has enough data points to run.
+func ensureBasketHistory(basketID int) error {
+	items, err := db.GetBasketItems(basketID)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if err := ingestion.EnsureHistory(item.FundID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RunBacktest handles POST /backtest — it runs (or serves a cached) backtest
@@ -34,6 +51,11 @@ func (h *Handlers) RunBacktest(w http.ResponseWriter, r *http.Request) {
 	if cached, err := cache.GetBacktestResult(key); err == nil && cached != nil {
 		w.Header().Set("X-Cache", "HIT")
 		writeJSON(w, http.StatusOK, cached)
+		return
+	}
+
+	if err := ensureBasketHistory(req.BasketID); err != nil {
+		writeError(w, http.StatusBadGateway, "could not load fund history: "+err.Error())
 		return
 	}
 

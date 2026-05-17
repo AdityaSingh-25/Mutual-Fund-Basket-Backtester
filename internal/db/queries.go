@@ -76,6 +76,18 @@ func GetBasketItems(basketID int) ([]models.BasketItem, error) {
 	return items, rows.Err()
 }
 
+func CountNAVDates(fundID int) (int, error) {
+	var count int
+
+	err := DB.QueryRow(`
+		SELECT COUNT(DISTINCT date)
+		FROM nav
+		WHERE fund_id = $1
+	`, fundID).Scan(&count)
+
+	return count, err
+}
+
 func GetFund(id int) (models.Fund, error) {
 	var fund models.Fund
 
