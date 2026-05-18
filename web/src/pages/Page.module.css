@@ -1,0 +1,22 @@
+.title {
+  margin: 0 0 0.4rem;
+  font-size: 1.6rem;
+}
+
+.lede {
+  margin: 0 0 1.5rem;
+  max-width: 60ch;
+  color: var(--text-muted);
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.headerRow .title {
+  margin: 0;
+}

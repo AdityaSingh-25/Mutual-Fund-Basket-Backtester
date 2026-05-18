@@ -22,6 +22,7 @@ func NewRouter(cfg *config.Config) http.Handler {
 	})
 
 	mux.HandleFunc("GET /funds", h.SearchFunds)
+	mux.HandleFunc("GET /funds/{id}", h.GetFund)
 
 	mux.HandleFunc("POST /baskets", h.CreateBasket)
 	mux.HandleFunc("GET /baskets", h.ListBaskets)
