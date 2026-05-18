@@ -1,0 +1,251 @@
+package handlers_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"testing"
+
+	"MFBasketBacktester/internal/api/handlers"
+	"MFBasketBacktester/internal/db"
+	"MFBasketBacktester/internal/models"
+	"MFBasketBacktester/internal/testsupport"
+)
+
+// jsonRequest builds an HTTP request with a JSON-encoded body.
+func jsonRequest(t *testing.T, method, target string, body any) *http.Request {
+	t.Helper()
+
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encode request body: %v", err)
+		}
+	}
+	req := httptest.NewRequest(method, target, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
+func TestCreateBasketHandler(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	h := handlers.New("")
+	fundID := testsupport.InsertFund(t, "Create Basket Handler Fund")
+
+	body := models.CreateBasketRequest{
+		Name:  "API Basket",
+		Items: []models.CreateBasketItemInput{{FundID: fundID, Weight: 100}},
+	}
+	rec := httptest.NewRecorder()
+	h.CreateBasket(rec, jsonRequest(t, http.MethodPost, "/baskets", body))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body = %s", rec.Code, rec.Body.String())
+	}
+
+	var got models.Basket
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	t.Cleanup(func() { db.DeleteBasket(got.ID) })
+
+	if got.Name != "API Basket" {
+		t.Errorf("Name = %q, want %q", got.Name, "API Basket")
+	}
+	if len(got.Items) != 1 || got.Items[0].FundID != fundID {
+		t.Errorf("Items = %+v, want one item for fund %d", got.Items, fundID)
+	}
+}
+
+func TestCreateBasketValidation(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	h := handlers.New("")
+	fundID := testsupport.InsertFund(t, "Validation Fund")
+
+	cases := []struct {
+		name string
+		body models.CreateBasketRequest
+	}{
+		{
+			name: "missing name",
+			body: models.CreateBasketRequest{
+				Items: []models.CreateBasketItemInput{{FundID: fundID, Weight: 1}},
+			},
+		},
+		{
+			name: "no items",
+			body: models.CreateBasketRequest{Name: "Empty"},
+		},
+		{
+			name: "non-positive weight",
+			body: models.CreateBasketRequest{
+				Name:  "Zero Weight",
+				Items: []models.CreateBasketItemInput{{FundID: fundID, Weight: 0}},
+			},
+		},
+		{
+			name: "duplicate fund",
+			body: models.CreateBasketRequest{
+				Name: "Dup",
+				Items: []models.CreateBasketItemInput{
+					{FundID: fundID, Weight: 50},
+					{FundID: fundID, Weight: 50},
+				},
+			},
+		},
+		{
+			name: "nonexistent fund",
+			body: models.CreateBasketRequest{
+				Name:  "Ghost",
+				Items: []models.CreateBasketItemInput{{FundID: 99_999_999, Weight: 100}},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.CreateBasket(rec, jsonRequest(t, http.MethodPost, "/baskets", tc.body))
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400; body = %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestCreateBasketBadJSON(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	h := handlers.New("")
+	req := httptest.NewRequest(http.MethodPost, "/baskets", strings.NewReader("{not valid"))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	h.CreateBasket(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestGetBasketHandler(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	h := handlers.New("")
+	basketID := testsupport.InsertBasket(t, "Gettable Basket")
+
+	t.Run("found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/baskets/"+strconv.Itoa(basketID), nil)
+		req.SetPathValue("id", strconv.Itoa(basketID))
+		h.GetBasket(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/baskets/99999999", nil)
+		req.SetPathValue("id", "99999999")
+		h.GetBasket(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404", rec.Code)
+		}
+	})
+
+	t.Run("invalid id", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/baskets/abc", nil)
+		req.SetPathValue("id", "abc")
+		h.GetBasket(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400", rec.Code)
+		}
+	})
+}
+
+func TestListBasketsHandler(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	h := handlers.New("")
+	basketID := testsupport.InsertBasket(t, "Basket In The List")
+
+	rec := httptest.NewRecorder()
+	h.ListBaskets(rec, httptest.NewRequest(http.MethodGet, "/baskets", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var baskets []models.Basket
+	if err := json.Unmarshal(rec.Body.Bytes(), &baskets); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	found := false
+	for _, b := range baskets {
+		if b.ID == basketID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("basket %d not present in list response", basketID)
+	}
+}
+
+func TestDeleteBasketHandler(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	h := handlers.New("")
+	basketID := testsupport.InsertBasket(t, "Deletable Basket")
+
+	del := func() int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/baskets/"+strconv.Itoa(basketID), nil)
+		req.SetPathValue("id", strconv.Itoa(basketID))
+		h.DeleteBasket(rec, req)
+		return rec.Code
+	}
+
+	if code := del(); code != http.StatusNoContent {
+		t.Fatalf("first delete status = %d, want 204", code)
+	}
+	if code := del(); code != http.StatusNotFound {
+		t.Errorf("second delete status = %d, want 404", code)
+	}
+}
+
+func TestSearchFundsHandler(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	h := handlers.New("")
+	fundID := testsupport.InsertFund(t, "Zephyr Quantum Handler Fund")
+
+	t.Run("matches by name", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.SearchFunds(rec, httptest.NewRequest(http.MethodGet, "/funds?q=Zephyr+Quantum+Handler", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		var funds []models.Fund
+		if err := json.Unmarshal(rec.Body.Bytes(), &funds); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if len(funds) != 1 || funds[0].ID != fundID {
+			t.Errorf("response = %+v, want only fund %d", funds, fundID)
+		}
+	})
+
+	t.Run("rejects bad limit", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.SearchFunds(rec, httptest.NewRequest(http.MethodGet, "/funds?limit=abc", nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400", rec.Code)
+		}
+	})
+}

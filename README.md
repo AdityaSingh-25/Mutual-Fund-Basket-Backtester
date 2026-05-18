@@ -173,10 +173,32 @@ Requires `CLAUDE_API_KEY` to be set; returns `502` if the summary cannot be gene
 
 ## Running Tests
 
+### Unit tests
+
 ```bash
 go test ./...
 ```
 
-The `compute` package (CAGR, XIRR, max drawdown) and the API rate-limiting
-middleware have unit test coverage. Handlers and the DB layer require running
-infrastructure.
+The `compute` (CAGR, XIRR, drawdown), `backtest` engine, and rate-limiting
+middleware packages have pure unit tests that run without any infrastructure.
+
+### Integration tests
+
+The DB query layer, HTTP handlers, the `backtest.Run` wrapper, and the Redis
+cache have integration tests. They run only when pointed at a database and
+Redis via environment variables, and are **skipped** otherwise:
+
+```bash
+TEST_DB_URL=postgres://user:password@localhost:5432/mf_backtester?sslmode=disable \
+TEST_REDIS_URL=redis://localhost:6379 \
+go test -race ./...
+```
+
+Integration tests create their own fixtures with unique identifiers and clean
+up after themselves, so they are safe to run against a populated database.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs `gofmt`, `go build`, `go vet`, and
+`go test -race ./...` on every push and pull request, with Postgres and Redis
+provided as service containers.
