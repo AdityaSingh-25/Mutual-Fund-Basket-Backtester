@@ -28,7 +28,7 @@ func TestRunIntegration(t *testing.T) {
 		t.Fatalf("InsertBasketItem: %v", err)
 	}
 
-	result, err := Run(basketID, "2021-01-01", "2022-01-01", 10000, false)
+	result, err := Run(basketID, "2021-01-01", "2022-01-01", 10000, false, "none")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestRunSIPIntegration(t *testing.T) {
 		t.Fatalf("InsertBasketItem: %v", err)
 	}
 
-	result, err := Run(basketID, "2021-01-01", "2021-04-01", 1000, true)
+	result, err := Run(basketID, "2021-01-01", "2021-04-01", 1000, true, "none")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestRunFundIntegration(t *testing.T) {
 	testsupport.InsertNAV(t, fund, "2021-01-01", 100)
 	testsupport.InsertNAV(t, fund, "2022-01-01", 150)
 
-	result, err := RunFund(fund, "2021-01-01", "2022-01-01", 10000, false)
+	result, err := RunFund(fund, "2021-01-01", "2022-01-01", 10000, false, "none")
 	if err != nil {
 		t.Fatalf("RunFund: %v", err)
 	}
@@ -105,19 +105,19 @@ func TestRunErrors(t *testing.T) {
 	testsupport.RequireDB(t)
 
 	t.Run("nonexistent basket", func(t *testing.T) {
-		if _, err := Run(99_999_999, "2021-01-01", "2022-01-01", 10000, false); err == nil {
+		if _, err := Run(99_999_999, "2021-01-01", "2022-01-01", 10000, false, "none"); err == nil {
 			t.Error("expected an error for a nonexistent basket")
 		}
 	})
 
 	t.Run("invalid start date", func(t *testing.T) {
-		if _, err := Run(1, "not-a-date", "2022-01-01", 10000, false); err == nil {
+		if _, err := Run(1, "not-a-date", "2022-01-01", 10000, false, "none"); err == nil {
 			t.Error("expected an error for an invalid start date")
 		}
 	})
 
 	t.Run("end before start", func(t *testing.T) {
-		if _, err := Run(1, "2022-01-01", "2021-01-01", 10000, false); err == nil {
+		if _, err := Run(1, "2022-01-01", "2021-01-01", 10000, false, "none"); err == nil {
 			t.Error("expected an error when end_date precedes start_date")
 		}
 	})

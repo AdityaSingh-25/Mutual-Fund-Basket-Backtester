@@ -29,6 +29,21 @@ func invalid(format string, args ...any) error {
 	return ValidationError{Err: fmt.Errorf(format, args...)}
 }
 
+// rebalanceMonths maps a rebalance period to its length in months. It returns
+// 0 for "none" or any unrecognised value, meaning no rebalancing.
+func rebalanceMonths(period string) int {
+	switch period {
+	case "monthly":
+		return 1
+	case "quarterly":
+		return 3
+	case "yearly":
+		return 12
+	default:
+		return 0
+	}
+}
+
 // FundInput is one fund's basket allocation paired with its NAV history.
 // Records must be sorted by date ascending.
 type FundInput struct {
@@ -44,7 +59,7 @@ type FundInput struct {
 //
 // Input problems are returned as ValidationError; database failures are
 // returned as plain errors.
-func Run(basketID int, startDate, endDate string, amount float64, sip bool) (models.BacktestResult, error) {
+func Run(basketID int, startDate, endDate string, amount float64, sip bool, rebalance string) (models.BacktestResult, error) {
 	var result models.BacktestResult
 
 	start, err := time.Parse(dateLayout, startDate)
@@ -80,13 +95,13 @@ func Run(basketID int, startDate, endDate string, amount float64, sip bool) (mod
 		})
 	}
 
-	return Simulate(funds, amount, sip)
+	return Simulate(funds, amount, sip, rebalance)
 }
 
 // RunFund backtests a single fund as a 100%-weight portfolio, loading its NAV
 // data from the database. It is used to produce benchmark comparisons over
 // the same date range, amount and mode as a basket backtest.
-func RunFund(fundID int, startDate, endDate string, amount float64, sip bool) (models.BacktestResult, error) {
+func RunFund(fundID int, startDate, endDate string, amount float64, sip bool, rebalance string) (models.BacktestResult, error) {
 	var result models.BacktestResult
 
 	start, err := time.Parse(dateLayout, startDate)
@@ -110,7 +125,7 @@ func RunFund(fundID int, startDate, endDate string, amount float64, sip bool) (m
 		Label:   fmt.Sprintf("benchmark fund %d", fundID),
 		Weight:  1,
 		Records: records,
-	}}, amount, sip)
+	}}, amount, sip, rebalance)
 }
 
 // Simulate is the pure, database-free core of a backtest. It splits each
@@ -120,8 +135,10 @@ func RunFund(fundID int, startDate, endDate string, amount float64, sip bool) (m
 //
 // When sip is false a single contribution of amount is made on the common
 // start date. When sip is true, amount is contributed on the start date and
-// then monthly thereafter. All errors it returns are ValidationError.
-func Simulate(funds []FundInput, amount float64, sip bool) (models.BacktestResult, error) {
+// then monthly thereafter. rebalance ("monthly", "quarterly" or "yearly")
+// periodically resets holdings to the target weights; any other value
+// disables it. All errors it returns are ValidationError.
+func Simulate(funds []FundInput, amount float64, sip bool, rebalance string) (models.BacktestResult, error) {
 	var result models.BacktestResult
 
 	if amount <= 0 {
@@ -207,6 +224,26 @@ func Simulate(funds []FundInput, amount float64, sip bool) (models.BacktestResul
 		contributions[0] = amount
 	}
 
+	// Build the rebalance schedule: timeline indices on which holdings are
+	// reset to target weights. Empty when rebalancing is disabled.
+	rebalanceAt := make([]bool, len(dates))
+	if months := rebalanceMonths(rebalance); months > 0 {
+		lastDate := dates[len(dates)-1]
+		for n := months; ; n += months {
+			target := effectiveStart.AddDate(0, n, 0)
+			if target.After(lastDate) {
+				break
+			}
+			idx := sort.Search(len(dates), func(i int) bool {
+				return !dates[i].Before(target)
+			})
+			if idx >= len(dates) {
+				break
+			}
+			rebalanceAt[idx] = true
+		}
+	}
+
 	// Walk the timeline: forward-fill each fund's NAV, apply any contribution
 	// due that day, then record the portfolio value.
 	pointers := make([]int, len(funds))
@@ -239,6 +276,23 @@ func Simulate(funds []FundInput, amount float64, sip bool) (models.BacktestResul
 		for fi := range funds {
 			total += units[fi] * navs[fi]
 		}
+
+		// Rebalancing redistributes existing holdings back to the target
+		// weights. It changes each fund's unit count but not the total.
+		if rebalanceAt[di] && total > 0 {
+			positive := true
+			for fi := range funds {
+				if navs[fi] <= 0 {
+					positive = false
+				}
+			}
+			if positive {
+				for fi := range funds {
+					units[fi] = (total * funds[fi].Weight / totalWeight) / navs[fi]
+				}
+			}
+		}
+
 		values[di] = total
 	}
 
@@ -271,6 +325,10 @@ func Simulate(funds []FundInput, amount float64, sip bool) (models.BacktestResul
 	result.Mode = "lumpsum"
 	if sip {
 		result.Mode = "sip"
+	}
+	result.Rebalance = "none"
+	if rebalanceMonths(rebalance) > 0 {
+		result.Rebalance = rebalance
 	}
 	result.CAGR = round2(compute.CAGR(totalInvested, finalValue, years))
 	result.XIRR = round2(compute.XIRR(cashflows))

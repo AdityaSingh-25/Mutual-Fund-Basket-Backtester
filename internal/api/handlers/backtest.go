@@ -25,19 +25,32 @@ func parseMode(mode string) (sip bool, err error) {
 	}
 }
 
+// parseRebalance validates and normalises the rebalance period.
+func parseRebalance(period string) (string, error) {
+	switch period {
+	case "", "none":
+		return "none", nil
+	case "monthly", "quarterly", "yearly":
+		return period, nil
+	default:
+		return "", fmt.Errorf(
+			"invalid rebalance %q, expected none, monthly, quarterly or yearly", period)
+	}
+}
+
 // cacheKey builds a deterministic Redis key for a backtest request.
-func cacheKey(req models.BacktestRequest, sip bool) string {
+func cacheKey(req models.BacktestRequest, sip bool, rebalance string) string {
 	mode := "lumpsum"
 	if sip {
 		mode = "sip"
 	}
-	return fmt.Sprintf("backtest:%d:%s:%s:%s:%.2f:b%d",
-		req.BasketID, mode, req.StartDate, req.EndDate, req.Amount, req.BenchmarkFundID)
+	return fmt.Sprintf("backtest:%d:%s:%s:%s:%s:%.2f:b%d",
+		req.BasketID, mode, rebalance, req.StartDate, req.EndDate, req.Amount, req.BenchmarkFundID)
 }
 
 // benchmarkResult runs the optional benchmark-fund comparison. On failure it
 // returns the HTTP status and error the handler should report.
-func benchmarkResult(req models.BacktestRequest, sip bool) (*models.BacktestResult, int, error) {
+func benchmarkResult(req models.BacktestRequest, sip bool, rebalance string) (*models.BacktestResult, int, error) {
 	exists, err := db.FundExists(req.BenchmarkFundID)
 	if err != nil {
 		return nil, http.StatusInternalServerError, errors.New("could not validate benchmark fund")
@@ -52,7 +65,7 @@ func benchmarkResult(req models.BacktestRequest, sip bool) (*models.BacktestResu
 			fmt.Errorf("could not load benchmark fund history: %w", err)
 	}
 
-	bench, err := backtest.RunFund(req.BenchmarkFundID, req.StartDate, req.EndDate, req.Amount, sip)
+	bench, err := backtest.RunFund(req.BenchmarkFundID, req.StartDate, req.EndDate, req.Amount, sip, rebalance)
 	if err != nil {
 		var ve backtest.ValidationError
 		if errors.As(err, &ve) {
@@ -97,7 +110,13 @@ func (h *Handlers) RunBacktest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := cacheKey(req, sip)
+	rebalance, err := parseRebalance(req.Rebalance)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	key := cacheKey(req, sip, rebalance)
 
 	if cached, err := cache.GetBacktestResult(key); err == nil && cached != nil {
 		w.Header().Set("X-Cache", "HIT")
@@ -110,14 +129,14 @@ func (h *Handlers) RunBacktest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := backtest.Run(req.BasketID, req.StartDate, req.EndDate, req.Amount, sip)
+	result, err := backtest.Run(req.BasketID, req.StartDate, req.EndDate, req.Amount, sip, rebalance)
 	if err != nil {
 		writeBacktestError(w, req.BasketID, err)
 		return
 	}
 
 	if req.BenchmarkFundID > 0 {
-		benchmark, status, err := benchmarkResult(req, sip)
+		benchmark, status, err := benchmarkResult(req, sip, rebalance)
 		if err != nil {
 			writeError(w, status, err.Error())
 			return

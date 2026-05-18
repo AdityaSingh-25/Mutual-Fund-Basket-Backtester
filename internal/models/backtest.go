@@ -22,7 +22,8 @@ type SeriesPoint struct {
 // Benchmark, when present, is the same backtest run against a single
 // benchmark fund over the identical date range, amount and mode.
 type BacktestResult struct {
-	Mode          string          `json:"mode"` // "lumpsum" or "sip"
+	Mode          string          `json:"mode"`      // "lumpsum" or "sip"
+	Rebalance     string          `json:"rebalance"` // "none", "monthly", "quarterly" or "yearly"
 	CAGR          float64         `json:"cagr"`
 	XIRR          float64         `json:"xirr"`
 	Drawdown      float64         `json:"drawdown"`
