@@ -24,7 +24,9 @@ A Go backend service for building custom mutual fund portfolios and backtesting 
 
 ```
 .
-├── cmd/server/         # Entry point
+├── cmd/
+│   ├── server/         # API server entry point
+│   └── backfill/       # One-shot NAV history backfill command
 ├── config/             # Env-based config loader
 ├── docker/             # Dockerfile and docker-compose.yml
 ├── internal/
@@ -33,10 +35,11 @@ A Go backend service for building custom mutual fund portfolios and backtesting 
 │   ├── cache/          # Redis client
 │   ├── claude/         # AI summary integration
 │   ├── compute/        # CAGR, XIRR, drawdown calculations
-│   ├── db/             # Postgres client and queries
+│   ├── db/             # Postgres client, queries, migration runner
 │   ├── ingestion/      # AMFI NAV fetcher and scheduler
-│   └── models/         # Shared data types
-└── migrations/         # SQL schema files
+│   ├── models/         # Shared data types
+│   └── testsupport/    # Integration-test helpers
+└── migrations/         # Embedded SQL schema files
 ```
 
 ## Setup
@@ -58,31 +61,44 @@ cp .env.example .env   # then fill in values
 
 ```
 DB_URL=postgres://user:password@localhost:5432/mf_backtester?sslmode=disable
-REDIS_URL=localhost:6379
+REDIS_URL=redis://localhost:6379
 CLAUDE_API_KEY=your_api_key_here
 PORT=8080
 ```
 
-### 2. Start infrastructure
+`CLAUDE_API_KEY` is optional — only the `/summary` endpoint needs it.
+
+### 2. Run everything with Docker Compose
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-This starts Postgres on `:5432` and Redis on `:6379`.
+This builds and starts three containers: Postgres (`:5432`), Redis (`:6379`),
+and the API server (`:8080`). Database migrations are applied automatically
+when the server starts. To pass a Claude key through, set `CLAUDE_API_KEY` in
+your shell before running compose.
 
-### 3. Apply migrations
+### Running the server locally instead
+
+To run the Go server outside Docker (for development):
 
 ```bash
-psql $DB_URL -f migrations/001_create_funds.sql
-psql $DB_URL -f migrations/002_create_nav.sql
-psql $DB_URL -f migrations/003_create_baskets.sql
+# start only the infrastructure
+docker compose -f docker/docker-compose.yml up -d postgres redis
+
+# run the server — migrations apply automatically on startup
+go run ./cmd/server
 ```
 
-### 4. Run the server
+### Backfilling NAV history
+
+The server backfills a fund's full NAV history lazily, the first time it is
+backtested. To pre-load history for every fund already used in a basket, run
+the one-shot backfill command:
 
 ```bash
-go run cmd/server/main.go
+go run ./cmd/backfill
 ```
 
 ## Database Schema

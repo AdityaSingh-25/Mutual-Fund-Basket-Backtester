@@ -60,3 +60,13 @@ func GetBacktestResult(key string) (*models.BacktestResult, error) {
 
 	return &result, nil
 }
+
+// SetSummary caches an AI-generated summary string under key for 24 hours.
+func SetSummary(key string, summary string) error {
+	return RDB.Set(Ctx, key, summary, 24*time.Hour).Err()
+}
+
+// GetSummary returns a cached summary; it returns an error on a cache miss.
+func GetSummary(key string) (string, error) {
+	return RDB.Get(Ctx, key).Result()
+}

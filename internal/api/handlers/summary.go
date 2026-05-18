@@ -60,11 +60,26 @@ func (h *Handlers) GetSummary(w http.ResponseWriter, r *http.Request) {
 		_ = cache.SetBacktestResult(key, result)
 	}
 
+	// A summary depends only on the basket and its backtest result, so it is
+	// cached under the backtest's own key — saving a billed Claude call.
+	summaryKey := "summary:" + key
+	if cached, err := cache.GetSummary(summaryKey); err == nil && cached != "" {
+		w.Header().Set("X-Cache", "HIT")
+		writeJSON(w, http.StatusOK, summaryResponse{
+			Basket:  basket.Name,
+			Result:  result,
+			Summary: cached,
+		})
+		return
+	}
+
 	summary, err := claude.Summarize(r.Context(), h.ClaudeAPIKey, basket.Name, result)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "could not generate summary: "+err.Error())
 		return
 	}
+	_ = cache.SetSummary(summaryKey, summary)
+	w.Header().Set("X-Cache", "MISS")
 
 	writeJSON(w, http.StatusOK, summaryResponse{
 		Basket:  basket.Name,

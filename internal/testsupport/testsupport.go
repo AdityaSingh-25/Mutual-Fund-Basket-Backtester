@@ -8,15 +8,13 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"MFBasketBacktester/internal/cache"
 	"MFBasketBacktester/internal/db"
+	"MFBasketBacktester/migrations"
 
 	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
@@ -52,7 +50,7 @@ func RequireDB(t testing.TB) {
 			return
 		}
 		db.DB = conn
-		dbErr = applyMigrations(conn)
+		dbErr = db.RunMigrations(migrations.Files)
 	})
 
 	if dbErr != nil {
@@ -87,34 +85,6 @@ func RequireRedis(t testing.TB) {
 	if redisErr != nil {
 		t.Fatalf("test redis setup failed: %v", redisErr)
 	}
-}
-
-// applyMigrations runs every migrations/*.sql file. The migrations use
-// CREATE TABLE IF NOT EXISTS, so this is safe to run against an existing DB.
-func applyMigrations(conn *sql.DB) error {
-	files, err := filepath.Glob(filepath.Join(repoRoot(), "migrations", "*.sql"))
-	if err != nil {
-		return err
-	}
-	sort.Strings(files)
-
-	for _, f := range files {
-		stmt, err := os.ReadFile(f)
-		if err != nil {
-			return fmt.Errorf("read migration %s: %w", filepath.Base(f), err)
-		}
-		if _, err := conn.Exec(string(stmt)); err != nil {
-			return fmt.Errorf("apply migration %s: %w", filepath.Base(f), err)
-		}
-	}
-	return nil
-}
-
-// repoRoot returns the repository root, derived from this file's own location.
-func repoRoot() string {
-	_, thisFile, _, _ := runtime.Caller(0)
-	// thisFile = <root>/internal/testsupport/testsupport.go
-	return filepath.Join(filepath.Dir(thisFile), "..", "..")
 }
 
 // InsertFund inserts a fund with a unique, collision-free scheme code and

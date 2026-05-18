@@ -174,6 +174,46 @@ func TestNAVHistoryAndCount(t *testing.T) {
 	}
 }
 
+func TestMigrationsApplied(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	var count int
+	err := db.DB.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count)
+	if err != nil {
+		t.Fatalf("query schema_migrations: %v", err)
+	}
+	if count < 3 {
+		t.Errorf("schema_migrations has %d rows, want at least 3", count)
+	}
+}
+
+func TestBasketFundIDs(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	basketID := testsupport.InsertBasket(t, "Fund IDs Basket")
+	f1 := testsupport.InsertFund(t, "Fund IDs Fund One")
+	f2 := testsupport.InsertFund(t, "Fund IDs Fund Two")
+	if err := db.InsertBasketItem(basketID, f1, 50); err != nil {
+		t.Fatalf("InsertBasketItem: %v", err)
+	}
+	if err := db.InsertBasketItem(basketID, f2, 50); err != nil {
+		t.Fatalf("InsertBasketItem: %v", err)
+	}
+
+	ids, err := db.BasketFundIDs()
+	if err != nil {
+		t.Fatalf("BasketFundIDs: %v", err)
+	}
+
+	seen := make(map[int]bool)
+	for _, id := range ids {
+		seen[id] = true
+	}
+	if !seen[f1] || !seen[f2] {
+		t.Errorf("BasketFundIDs missing %d or %d; got %v", f1, f2, ids)
+	}
+}
+
 func TestGetFund(t *testing.T) {
 	testsupport.RequireDB(t)
 
