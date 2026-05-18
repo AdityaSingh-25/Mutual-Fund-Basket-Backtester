@@ -19,12 +19,20 @@ import (
 
 func main() {
 	cfg := config.LoadConfig()
+	if err := cfg.Validate(); err != nil {
+		log.Fatal("Configuration error: ", err)
+	}
+	if cfg.ClaudeAPIKey == "" {
+		log.Println("Warning: CLAUDE_API_KEY not set; the /summary endpoint will be unavailable")
+	}
 
 	db.InitDB(cfg.DBUrl)
 	cache.InitRedis(cfg.RedisUrl)
 
-	// Keep NAV data fresh; AMFI publishes once per business day.
-	ingestion.StartScheduler(24 * time.Hour)
+	// Keep NAV data fresh; AMFI publishes once per business day. The scheduler
+	// goroutine is cancelled on shutdown so it does not outlive the process.
+	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
+	ingestion.StartScheduler(schedulerCtx, 24*time.Hour)
 
 	router := api.NewRouter(cfg)
 
@@ -50,6 +58,8 @@ func main() {
 	<-stop
 
 	log.Println("Shutting down...")
+	stopScheduler()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

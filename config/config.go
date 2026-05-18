@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -12,6 +14,24 @@ type Config struct {
 	RedisUrl     string
 	ClaudeAPIKey string
 	Port         string
+}
+
+// Validate reports whether the required configuration is present. DB_URL and
+// REDIS_URL are mandatory; CLAUDE_API_KEY is optional (only /summary needs it)
+// and PORT has a default.
+func (c *Config) Validate() error {
+	var missing []string
+	if c.DBUrl == "" {
+		missing = append(missing, "DB_URL")
+	}
+	if c.RedisUrl == "" {
+		missing = append(missing, "REDIS_URL")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required environment variables: %s",
+			strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 func LoadConfig() *Config {

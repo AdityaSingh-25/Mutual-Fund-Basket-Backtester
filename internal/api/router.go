@@ -33,5 +33,8 @@ func NewRouter(cfg *config.Config) http.Handler {
 
 	// Allow short bursts of 10 requests, then 5 sustained requests/second/IP.
 	limiter := middleware.NewRateLimiter(5, 10)
-	return limiter.Limit(mux)
+
+	// Logging is outermost so it records every response, including the 429s
+	// produced by the rate limiter.
+	return middleware.Logging(limiter.Limit(mux))
 }
