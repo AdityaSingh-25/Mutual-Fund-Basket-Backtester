@@ -148,8 +148,12 @@ NAVs; the portfolio is valued (forward-filled) through the end date.
 - `lumpsum` (default) — `amount` is invested once at the start.
 - `sip` — `amount` is invested every month (a Systematic Investment Plan).
 
+`rebalance` optionally resets the basket to its target weights on a schedule —
+`none` (default), `monthly`, `quarterly`, or `yearly`. Without it, holdings
+drift as funds grow at different rates.
+
 `benchmark_fund_id` is optional; when set, the basket is also backtested
-against that single fund over the same range, amount and mode.
+against that single fund over the same range, amount, mode and rebalance.
 
 ```json
 {
@@ -158,6 +162,7 @@ against that single fund over the same range, amount and mode.
   "end_date": "2024-01-01",
   "amount": 100000,
   "mode": "lumpsum",
+  "rebalance": "yearly",
   "benchmark_fund_id": 119551
 }
 ```
@@ -167,6 +172,7 @@ Response:
 ```json
 {
   "mode": "lumpsum",
+  "rebalance": "yearly",
   "cagr": 14.2,
   "xirr": 13.8,
   "drawdown": 22.1,
@@ -178,6 +184,7 @@ Response:
   ],
   "benchmark": {
     "mode": "lumpsum",
+    "rebalance": "yearly",
     "cagr": 12.1,
     "xirr": 12.1,
     "drawdown": 25.4,

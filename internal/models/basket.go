@@ -25,13 +25,15 @@ type CreateBasketItemInput struct {
 // BacktestRequest is the payload for POST /backtest.
 //
 // Mode selects the investment style: "lumpsum" (default) invests Amount once
-// at the start; "sip" invests Amount every month. BenchmarkFundID is optional;
-// when set, the basket is also compared against that single fund.
+// at the start; "sip" invests Amount every month. Rebalance optionally resets
+// holdings to target weights on a schedule. BenchmarkFundID is optional; when
+// set, the basket is also compared against that single fund.
 type BacktestRequest struct {
 	BasketID        int     `json:"basket_id"`
 	StartDate       string  `json:"start_date"`                  // YYYY-MM-DD
 	EndDate         string  `json:"end_date"`                    // YYYY-MM-DD
 	Amount          float64 `json:"amount"`                      // lump-sum total, or monthly SIP amount
 	Mode            string  `json:"mode"`                        // "lumpsum" (default) or "sip"
+	Rebalance       string  `json:"rebalance,omitempty"`         // "none", "monthly", "quarterly", "yearly"
 	BenchmarkFundID int     `json:"benchmark_fund_id,omitempty"` // optional comparison fund
 }

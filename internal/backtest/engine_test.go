@@ -98,7 +98,7 @@ func TestSimulate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Simulate(tc.funds(t), tc.amount, false)
+			got, err := Simulate(tc.funds(t), tc.amount, false, "none")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -142,7 +142,7 @@ func TestSimulateClampsToCommonStart(t *testing.T) {
 		}},
 	}
 
-	got, err := Simulate(funds, 10000, false)
+	got, err := Simulate(funds, 10000, false, "none")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestSimulateSIP(t *testing.T) {
 		},
 	}}
 
-	got, err := Simulate(funds, 1000, true)
+	got, err := Simulate(funds, 1000, true, "none")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -198,6 +198,52 @@ func TestSimulateSIP(t *testing.T) {
 	}
 	if len(got.Series) != 4 {
 		t.Errorf("len(Series) = %d, want 4", len(got.Series))
+	}
+}
+
+// TestSimulateRebalancing checks that periodic rebalancing redistributes
+// holdings back to target weights, changing the outcome versus buy-and-hold.
+func TestSimulateRebalancing(t *testing.T) {
+	// Fund A doubles in the first half then is flat; fund B is flat then
+	// doubles. A 50/50 basket rebalanced mid-period sells the winner (A) and
+	// buys the laggard (B), which then rallies.
+	makeFunds := func() []FundInput {
+		return []FundInput{
+			{Label: "fund A", Weight: 1, Records: []models.NAVRecord{
+				nav(t, "2021-01-01", 100),
+				nav(t, "2021-07-01", 200),
+				nav(t, "2022-01-01", 200),
+			}},
+			{Label: "fund B", Weight: 1, Records: []models.NAVRecord{
+				nav(t, "2021-01-01", 100),
+				nav(t, "2021-07-01", 100),
+				nav(t, "2022-01-01", 200),
+			}},
+		}
+	}
+
+	held, err := Simulate(makeFunds(), 10000, false, "none")
+	if err != nil {
+		t.Fatalf("buy-and-hold: %v", err)
+	}
+	if held.FinalValue != 20000 {
+		t.Errorf("buy-and-hold FinalValue = %v, want 20000", held.FinalValue)
+	}
+	if held.Rebalance != "none" {
+		t.Errorf("buy-and-hold Rebalance = %q, want none", held.Rebalance)
+	}
+
+	rebalanced, err := Simulate(makeFunds(), 10000, false, "quarterly")
+	if err != nil {
+		t.Fatalf("rebalanced: %v", err)
+	}
+	// Rebalanced at 2021-07-01 to 50/50 of 15000: 37.5 units of A, 75 of B.
+	// At 2022-01-01: 37.5*200 + 75*200 = 22500.
+	if rebalanced.FinalValue != 22500 {
+		t.Errorf("rebalanced FinalValue = %v, want 22500", rebalanced.FinalValue)
+	}
+	if rebalanced.Rebalance != "quarterly" {
+		t.Errorf("rebalanced Rebalance = %q, want quarterly", rebalanced.Rebalance)
 	}
 }
 
@@ -258,7 +304,7 @@ func TestSimulateErrors(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Simulate(tc.funds, tc.amount, false)
+			_, err := Simulate(tc.funds, tc.amount, false, "none")
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tc.wantErr)
 			}

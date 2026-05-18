@@ -383,3 +383,22 @@ func TestRunBacktestBenchmarkNotFound(t *testing.T) {
 		t.Errorf("status = %d, want 400 for a nonexistent benchmark fund", rec.Code)
 	}
 }
+
+func TestRunBacktestInvalidRebalance(t *testing.T) {
+	h := handlers.New()
+
+	body := models.BacktestRequest{
+		BasketID:  1,
+		StartDate: "2021-01-01",
+		EndDate:   "2022-01-01",
+		Amount:    10000,
+		Rebalance: "weekly",
+	}
+
+	rec := httptest.NewRecorder()
+	h.RunBacktest(rec, jsonRequest(t, http.MethodPost, "/backtest", body))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for an invalid rebalance period", rec.Code)
+	}
+}
