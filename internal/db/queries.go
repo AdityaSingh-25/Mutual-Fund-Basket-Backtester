@@ -139,6 +139,33 @@ func GetBasketItems(basketID int) ([]models.BasketItem, error) {
 	return items, rows.Err()
 }
 
+// BasketFundIDs returns the distinct fund ids referenced by any basket — the
+// set of funds worth proactively backfilling NAV history for.
+func BasketFundIDs() ([]int, error) {
+	rows, err := DB.Query(`
+		SELECT DISTINCT fund_id
+		FROM basket_items
+		ORDER BY fund_id ASC
+	`)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int
+
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+
+	return ids, rows.Err()
+}
+
 func CountNAVDates(fundID int) (int, error) {
 	var count int
 

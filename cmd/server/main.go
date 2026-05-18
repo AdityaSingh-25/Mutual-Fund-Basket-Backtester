@@ -15,6 +15,7 @@ import (
 	"MFBasketBacktester/internal/cache"
 	"MFBasketBacktester/internal/db"
 	"MFBasketBacktester/internal/ingestion"
+	"MFBasketBacktester/migrations"
 )
 
 func main() {
@@ -27,6 +28,10 @@ func main() {
 	}
 
 	db.InitDB(cfg.DBUrl)
+	if err := db.RunMigrations(migrations.Files); err != nil {
+		log.Fatal("Migration error: ", err)
+	}
+
 	cache.InitRedis(cfg.RedisUrl)
 
 	// Keep NAV data fresh; AMFI publishes once per business day. The scheduler
