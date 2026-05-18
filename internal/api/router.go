@@ -21,8 +21,13 @@ func NewRouter(cfg *config.Config) http.Handler {
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
+	mux.HandleFunc("GET /funds", h.SearchFunds)
+
 	mux.HandleFunc("POST /baskets", h.CreateBasket)
+	mux.HandleFunc("GET /baskets", h.ListBaskets)
 	mux.HandleFunc("GET /baskets/{id}", h.GetBasket)
+	mux.HandleFunc("DELETE /baskets/{id}", h.DeleteBasket)
+
 	mux.HandleFunc("POST /backtest", h.RunBacktest)
 	mux.HandleFunc("POST /summary", h.GetSummary)
 
