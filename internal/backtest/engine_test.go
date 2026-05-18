@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -205,6 +206,10 @@ func TestSimulateErrors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.wantErr) {
 				t.Errorf("error = %q, want it to contain %q", err.Error(), tc.wantErr)
+			}
+			var ve ValidationError
+			if !errors.As(err, &ve) {
+				t.Errorf("error %v is not a ValidationError", err)
 			}
 		})
 	}

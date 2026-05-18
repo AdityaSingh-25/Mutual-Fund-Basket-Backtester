@@ -48,7 +48,7 @@ func (h *Handlers) GetSummary(w http.ResponseWriter, r *http.Request) {
 		}
 		result, err = backtest.Run(req.BasketID, req.StartDate, req.EndDate, req.Amount)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeBacktestError(w, req.BasketID, err)
 			return
 		}
 		_ = cache.SetBacktestResult(key, result)

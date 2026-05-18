@@ -3,7 +3,6 @@
 package backtest
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -16,6 +15,20 @@ import (
 
 const dateLayout = "2006-01-02"
 
+// ValidationError marks a backtest failure caused by invalid input — bad
+// dates, an empty basket, insufficient NAV data — as distinct from an
+// internal error such as a database failure. Callers use errors.As to map it
+// to an HTTP 400 rather than a 500.
+type ValidationError struct{ Err error }
+
+func (e ValidationError) Error() string { return e.Err.Error() }
+func (e ValidationError) Unwrap() error { return e.Err }
+
+// invalid builds a ValidationError from a formatted message.
+func invalid(format string, args ...any) error {
+	return ValidationError{Err: fmt.Errorf(format, args...)}
+}
+
 // FundInput is one fund's basket allocation paired with its NAV history.
 // Records must be sorted by date ascending.
 type FundInput struct {
@@ -26,19 +39,22 @@ type FundInput struct {
 
 // Run simulates a lump-sum investment of amount into the given basket between
 // startDate and endDate (both YYYY-MM-DD), loading NAV data from the database.
+//
+// Input problems are returned as ValidationError; database failures are
+// returned as plain errors.
 func Run(basketID int, startDate, endDate string, amount float64) (models.BacktestResult, error) {
 	var result models.BacktestResult
 
 	start, err := time.Parse(dateLayout, startDate)
 	if err != nil {
-		return result, errors.New("invalid start_date, expected YYYY-MM-DD")
+		return result, invalid("invalid start_date, expected YYYY-MM-DD")
 	}
 	end, err := time.Parse(dateLayout, endDate)
 	if err != nil {
-		return result, errors.New("invalid end_date, expected YYYY-MM-DD")
+		return result, invalid("invalid end_date, expected YYYY-MM-DD")
 	}
 	if !end.After(start) {
-		return result, errors.New("end_date must be after start_date")
+		return result, invalid("end_date must be after start_date")
 	}
 
 	items, err := db.GetBasketItems(basketID)
@@ -46,7 +62,7 @@ func Run(basketID int, startDate, endDate string, amount float64) (models.Backte
 		return result, err
 	}
 	if len(items) == 0 {
-		return result, errors.New("basket has no funds")
+		return result, invalid("basket has no funds")
 	}
 
 	funds := make([]FundInput, 0, len(items))
@@ -73,26 +89,26 @@ func Run(basketID int, startDate, endDate string, amount float64) (models.Backte
 //
 // Each fund's units are fixed at the common start date; portfolio value on any
 // later date is the sum of each fund's units valued at its most recent NAV
-// (forward-filled).
+// (forward-filled). All errors it returns are ValidationError.
 func Simulate(funds []FundInput, amount float64) (models.BacktestResult, error) {
 	var result models.BacktestResult
 
 	if amount <= 0 {
-		return result, errors.New("amount must be positive")
+		return result, invalid("amount must be positive")
 	}
 	if len(funds) == 0 {
-		return result, errors.New("no funds provided")
+		return result, invalid("no funds provided")
 	}
 
 	totalWeight := 0.0
 	for _, f := range funds {
 		if f.Weight < 0 {
-			return result, errors.New("fund weight cannot be negative")
+			return result, invalid("fund weight cannot be negative")
 		}
 		totalWeight += f.Weight
 	}
 	if totalWeight <= 0 {
-		return result, errors.New("basket weights sum to zero")
+		return result, invalid("basket weights sum to zero")
 	}
 
 	// Find the common start date — the latest date on which all funds first
@@ -100,7 +116,7 @@ func Simulate(funds []FundInput, amount float64) (models.BacktestResult, error) 
 	var effectiveStart time.Time
 	for _, f := range funds {
 		if len(f.Records) == 0 {
-			return result, fmt.Errorf("%s has no NAV data in the requested range", f.Label)
+			return result, invalid("%s has no NAV data in the requested range", f.Label)
 		}
 		if first := f.Records[0].Date; first.After(effectiveStart) {
 			effectiveStart = first
@@ -108,7 +124,7 @@ func Simulate(funds []FundInput, amount float64) (models.BacktestResult, error) 
 	}
 	for _, f := range funds {
 		if last := f.Records[len(f.Records)-1].Date; last.Before(effectiveStart) {
-			return result, fmt.Errorf("%s has no NAV data after %s",
+			return result, invalid("%s has no NAV data after %s",
 				f.Label, effectiveStart.Format(dateLayout))
 		}
 	}
@@ -129,7 +145,7 @@ func Simulate(funds []FundInput, amount float64) (models.BacktestResult, error) 
 	sort.Slice(dates, func(i, j int) bool { return dates[i].Before(dates[j]) })
 
 	if len(dates) < 2 {
-		return result, errors.New("insufficient NAV data points to run a backtest")
+		return result, invalid("insufficient NAV data points to run a backtest")
 	}
 
 	// Walk the timeline, forward-filling each fund's NAV, and build the
@@ -151,7 +167,7 @@ func Simulate(funds []FundInput, amount float64) (models.BacktestResult, error) 
 			nav := recs[p].NAV
 			if di == 0 {
 				if nav <= 0 {
-					return result, fmt.Errorf("%s has a non-positive NAV at start", funds[fi].Label)
+					return result, invalid("%s has a non-positive NAV at start", funds[fi].Label)
 				}
 				units[fi] = (amount * funds[fi].Weight / totalWeight) / nav
 			}

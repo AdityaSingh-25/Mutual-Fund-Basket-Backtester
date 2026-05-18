@@ -32,18 +32,46 @@ type mfapiResponse struct {
 	Status string `json:"status"`
 }
 
+// fetchHistory performs the mfapi GET, retrying up to three times with a
+// linear backoff on a network error or a 5xx response. A 4xx response is
+// returned to the caller without a retry.
+func fetchHistory(schemeCode int64) (*http.Response, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	url := fmt.Sprintf(mfapiURL, schemeCode)
+
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		resp, err := client.Get(url)
+		switch {
+		case err != nil:
+			lastErr = err
+		case resp.StatusCode >= 500:
+			resp.Body.Close()
+			lastErr = fmt.Errorf("mfapi returned status %d", resp.StatusCode)
+		default:
+			return resp, nil
+		}
+		if attempt < 3 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+	}
+	return nil, fmt.Errorf("mfapi request for scheme %d failed after 3 attempts: %w",
+		schemeCode, lastErr)
+}
+
 // FetchAndStoreHistory pulls the complete NAV history for a scheme from
 // api.mfapi.in and stores it against the given fund. It returns the number of
 // new NAV rows inserted (existing dates are left untouched).
 func FetchAndStoreHistory(fundID int, schemeCode int64) (int, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
-
-	resp, err := client.Get(fmt.Sprintf(mfapiURL, schemeCode))
+	resp, err := fetchHistory(schemeCode)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return 0, fmt.Errorf("scheme %d not found on mfapi", schemeCode)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("mfapi returned status %d for scheme %d", resp.StatusCode, schemeCode)
 	}
