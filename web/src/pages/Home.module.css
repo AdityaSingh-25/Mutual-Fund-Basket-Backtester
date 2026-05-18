@@ -1,0 +1,53 @@
+.title {
+  margin: 0 0 0.5rem;
+  font-size: 1.6rem;
+}
+
+.lede {
+  margin: 0 0 1.5rem;
+  max-width: 60ch;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.statusCard {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.checking {
+  background: var(--warning);
+}
+
+.online {
+  background: var(--success);
+}
+
+.offline {
+  background: var(--danger);
+}
+
+.hint {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.hint code {
+  background: var(--surface-alt);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}

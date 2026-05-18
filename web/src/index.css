@@ -1,0 +1,43 @@
+:root {
+  --bg: #f7f7f9;
+  --surface: #ffffff;
+  --surface-alt: #f0f0f3;
+  --border: #e2e2e7;
+  --text: #1c1c21;
+  --text-muted: #6a6a75;
+  --accent: #4f46e5;
+  --accent-soft: #ebeaff;
+  --success: #1f9d55;
+  --warning: #d99a06;
+  --danger: #d64545;
+
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--text);
+}
+
+a {
+  color: var(--accent);
+}
+
+code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85em;
+}
