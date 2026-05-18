@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -26,6 +27,7 @@ func (h *Handlers) CreateBasket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "basket must contain at least one fund")
 		return
 	}
+	seen := make(map[int]bool, len(req.Items))
 	for _, item := range req.Items {
 		if item.FundID <= 0 {
 			writeError(w, http.StatusBadRequest, "each item needs a valid fund_id")
@@ -33,6 +35,22 @@ func (h *Handlers) CreateBasket(w http.ResponseWriter, r *http.Request) {
 		}
 		if item.Weight <= 0 {
 			writeError(w, http.StatusBadRequest, "each item weight must be positive")
+			return
+		}
+		if seen[item.FundID] {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("fund %d appears more than once in the basket", item.FundID))
+			return
+		}
+		seen[item.FundID] = true
+
+		exists, err := db.FundExists(item.FundID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "could not validate funds")
+			return
+		}
+		if !exists {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("fund %d does not exist", item.FundID))
 			return
 		}
 	}
@@ -58,6 +76,41 @@ func (h *Handlers) CreateBasket(w http.ResponseWriter, r *http.Request) {
 	basket.Items, _ = db.GetBasketItems(basketID)
 
 	writeJSON(w, http.StatusCreated, basket)
+}
+
+// ListBaskets handles GET /baskets — it returns all baskets, newest first.
+func (h *Handlers) ListBaskets(w http.ResponseWriter, r *http.Request) {
+	baskets, err := db.ListBaskets()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not list baskets")
+		return
+	}
+	if baskets == nil {
+		baskets = []models.Basket{}
+	}
+
+	writeJSON(w, http.StatusOK, baskets)
+}
+
+// DeleteBasket handles DELETE /baskets/{id} — it removes a basket and its funds.
+func (h *Handlers) DeleteBasket(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid basket id")
+		return
+	}
+
+	affected, err := db.DeleteBasket(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not delete basket")
+		return
+	}
+	if affected == 0 {
+		writeError(w, http.StatusNotFound, "basket not found")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // GetBasket handles GET /baskets/{id} — it returns a basket with its funds.
