@@ -12,10 +12,26 @@ import (
 	"MFBasketBacktester/internal/models"
 )
 
+// parseMode maps the request mode to a SIP flag, defaulting to lump sum.
+func parseMode(mode string) (sip bool, err error) {
+	switch mode {
+	case "", "lumpsum":
+		return false, nil
+	case "sip":
+		return true, nil
+	default:
+		return false, fmt.Errorf("invalid mode %q, expected \"lumpsum\" or \"sip\"", mode)
+	}
+}
+
 // cacheKey builds a deterministic Redis key for a backtest request.
-func cacheKey(req models.BacktestRequest) string {
-	return fmt.Sprintf("backtest:%d:%s:%s:%.2f",
-		req.BasketID, req.StartDate, req.EndDate, req.Amount)
+func cacheKey(req models.BacktestRequest, sip bool) string {
+	mode := "lumpsum"
+	if sip {
+		mode = "sip"
+	}
+	return fmt.Sprintf("backtest:%d:%s:%s:%s:%.2f",
+		req.BasketID, mode, req.StartDate, req.EndDate, req.Amount)
 }
 
 // ensureBasketHistory backfills full NAV history for every fund in a basket
@@ -46,7 +62,13 @@ func (h *Handlers) RunBacktest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := cacheKey(req)
+	sip, err := parseMode(req.Mode)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	key := cacheKey(req, sip)
 
 	if cached, err := cache.GetBacktestResult(key); err == nil && cached != nil {
 		w.Header().Set("X-Cache", "HIT")
@@ -59,7 +81,7 @@ func (h *Handlers) RunBacktest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := backtest.Run(req.BasketID, req.StartDate, req.EndDate, req.Amount)
+	result, err := backtest.Run(req.BasketID, req.StartDate, req.EndDate, req.Amount, sip)
 	if err != nil {
 		writeBacktestError(w, req.BasketID, err)
 		return

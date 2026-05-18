@@ -31,13 +31,19 @@ func (h *Handlers) GetSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sip, err := parseMode(req.Mode)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	basket, err := db.GetBasket(req.BasketID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "basket not found")
 		return
 	}
 
-	key := cacheKey(req)
+	key := cacheKey(req, sip)
 	var result models.BacktestResult
 	if cached, err := cache.GetBacktestResult(key); err == nil && cached != nil {
 		result = *cached
@@ -46,7 +52,7 @@ func (h *Handlers) GetSummary(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, "could not load fund history: "+err.Error())
 			return
 		}
-		result, err = backtest.Run(req.BasketID, req.StartDate, req.EndDate, req.Amount)
+		result, err = backtest.Run(req.BasketID, req.StartDate, req.EndDate, req.Amount, sip)
 		if err != nil {
 			writeBacktestError(w, req.BasketID, err)
 			return

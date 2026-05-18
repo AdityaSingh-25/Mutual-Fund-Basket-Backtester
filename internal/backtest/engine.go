@@ -37,12 +37,14 @@ type FundInput struct {
 	Records []models.NAVRecord
 }
 
-// Run simulates a lump-sum investment of amount into the given basket between
+// Run simulates an investment of amount into the given basket between
 // startDate and endDate (both YYYY-MM-DD), loading NAV data from the database.
+// When sip is true, amount is invested every month; otherwise it is a single
+// lump sum at the start.
 //
 // Input problems are returned as ValidationError; database failures are
 // returned as plain errors.
-func Run(basketID int, startDate, endDate string, amount float64) (models.BacktestResult, error) {
+func Run(basketID int, startDate, endDate string, amount float64, sip bool) (models.BacktestResult, error) {
 	var result models.BacktestResult
 
 	start, err := time.Parse(dateLayout, startDate)
@@ -78,19 +80,18 @@ func Run(basketID int, startDate, endDate string, amount float64) (models.Backte
 		})
 	}
 
-	return Simulate(funds, amount)
+	return Simulate(funds, amount, sip)
 }
 
-// Simulate is the pure, database-free core of a backtest. It values a lump-sum
-// investment of amount, split across funds by normalised weight, from the
-// common start date (the latest date on which every fund first has data)
-// through the last observation, and reports CAGR, XIRR, max drawdown and the
-// final portfolio value.
+// Simulate is the pure, database-free core of a backtest. It splits each
+// contribution across funds by normalised weight and buys units at that day's
+// NAVs; portfolio value on any later date is the sum of accumulated units
+// valued at each fund's most recent NAV (forward-filled).
 //
-// Each fund's units are fixed at the common start date; portfolio value on any
-// later date is the sum of each fund's units valued at its most recent NAV
-// (forward-filled). All errors it returns are ValidationError.
-func Simulate(funds []FundInput, amount float64) (models.BacktestResult, error) {
+// When sip is false a single contribution of amount is made on the common
+// start date. When sip is true, amount is contributed on the start date and
+// then monthly thereafter. All errors it returns are ValidationError.
+func Simulate(funds []FundInput, amount float64, sip bool) (models.BacktestResult, error) {
 	var result models.BacktestResult
 
 	if amount <= 0 {
@@ -148,14 +149,42 @@ func Simulate(funds []FundInput, amount float64) (models.BacktestResult, error) 
 		return result, invalid("insufficient NAV data points to run a backtest")
 	}
 
-	// Walk the timeline, forward-filling each fund's NAV, and build the
-	// portfolio value series. Units are fixed at the common start date.
+	// Build the contribution schedule: amount per timeline-date index. A SIP
+	// contributes monthly from the start; a lump sum contributes once.
+	contributions := make([]float64, len(dates))
+	if sip {
+		lastDate := dates[len(dates)-1]
+		prevIdx := -1
+		for month := 0; ; month++ {
+			target := effectiveStart.AddDate(0, month, 0)
+			if month > 0 && target.After(lastDate) {
+				break
+			}
+			// First timeline date on or after the monthly anniversary.
+			idx := sort.Search(len(dates), func(i int) bool {
+				return !dates[i].Before(target)
+			})
+			if idx >= len(dates) {
+				break
+			}
+			if idx == prevIdx { // anniversary fell in a data gap already used
+				continue
+			}
+			prevIdx = idx
+			contributions[idx] += amount
+		}
+	} else {
+		contributions[0] = amount
+	}
+
+	// Walk the timeline: forward-fill each fund's NAV, apply any contribution
+	// due that day, then record the portfolio value.
 	pointers := make([]int, len(funds))
 	units := make([]float64, len(funds))
-	values := make([]float64, 0, len(dates))
+	navs := make([]float64, len(funds))
+	values := make([]float64, len(dates))
 
 	for di, date := range dates {
-		total := 0.0
 		for fi := range funds {
 			recs := funds[fi].Records
 			p := pointers[fi]
@@ -163,29 +192,62 @@ func Simulate(funds []FundInput, amount float64) (models.BacktestResult, error) 
 				p++
 			}
 			pointers[fi] = p
-
-			nav := recs[p].NAV
-			if di == 0 {
-				if nav <= 0 {
-					return result, invalid("%s has a non-positive NAV at start", funds[fi].Label)
-				}
-				units[fi] = (amount * funds[fi].Weight / totalWeight) / nav
-			}
-			total += units[fi] * nav
+			navs[fi] = recs[p].NAV
 		}
-		values = append(values, total)
+
+		if c := contributions[di]; c > 0 {
+			for fi := range funds {
+				if navs[fi] <= 0 {
+					return result, invalid("%s has a non-positive NAV on %s",
+						funds[fi].Label, date.Format(dateLayout))
+				}
+				units[fi] += (c * funds[fi].Weight / totalWeight) / navs[fi]
+			}
+		}
+
+		total := 0.0
+		for fi := range funds {
+			total += units[fi] * navs[fi]
+		}
+		values[di] = total
 	}
 
+	// Cashflows for XIRR: each contribution is money out, the final value is
+	// money returned.
+	var cashflows []compute.Cashflow
+	totalInvested := 0.0
+	for di, c := range contributions {
+		if c > 0 {
+			cashflows = append(cashflows, compute.Cashflow{Date: dates[di], Amount: -c})
+			totalInvested += c
+		}
+	}
 	finalValue := values[len(values)-1]
+	cashflows = append(cashflows, compute.Cashflow{
+		Date:   dates[len(dates)-1],
+		Amount: finalValue,
+	})
+
 	years := dates[len(dates)-1].Sub(dates[0]).Hours() / 24 / 365
 
-	result.CAGR = round2(compute.CAGR(amount, finalValue, years))
+	series := make([]models.SeriesPoint, len(dates))
+	for i := range dates {
+		series[i] = models.SeriesPoint{
+			Date:  dates[i].Format(dateLayout),
+			Value: round2(values[i]),
+		}
+	}
+
+	result.Mode = "lumpsum"
+	if sip {
+		result.Mode = "sip"
+	}
+	result.CAGR = round2(compute.CAGR(totalInvested, finalValue, years))
+	result.XIRR = round2(compute.XIRR(cashflows))
 	result.Drawdown = round2(compute.MaxDrawdown(values))
-	result.XIRR = round2(compute.XIRR([]compute.Cashflow{
-		{Date: dates[0], Amount: -amount},
-		{Date: dates[len(dates)-1], Amount: finalValue},
-	}))
+	result.TotalInvested = round2(totalInvested)
 	result.FinalValue = round2(finalValue)
+	result.Series = series
 
 	return result, nil
 }

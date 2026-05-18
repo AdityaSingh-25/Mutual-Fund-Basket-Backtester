@@ -1,6 +1,7 @@
 package cache_test
 
 import (
+	"reflect"
 	"testing"
 
 	"MFBasketBacktester/internal/cache"
@@ -28,7 +29,7 @@ func TestBacktestResultRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetBacktestResult: %v", err)
 	}
-	if *got != want {
+	if !reflect.DeepEqual(*got, want) {
 		t.Errorf("round-trip = %+v, want %+v", *got, want)
 	}
 }

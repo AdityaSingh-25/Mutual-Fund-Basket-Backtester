@@ -51,16 +51,24 @@ func Summarize(ctx context.Context, apiKey string, basketName string, result mod
 		return "", errors.New("claude api key is not configured")
 	}
 
+	investment := "lump-sum"
+	if result.Mode == "sip" {
+		investment = "monthly SIP"
+	}
+
 	prompt := fmt.Sprintf(
-		"A user backtested a mutual fund basket named %q. Results:\n"+
+		"A user ran a %s backtest on a mutual fund basket named %q. Results:\n"+
 			"- CAGR: %.2f%%\n"+
 			"- XIRR: %.2f%%\n"+
 			"- Maximum drawdown: %.2f%%\n"+
+			"- Total invested: %.2f\n"+
 			"- Final portfolio value: %.2f\n\n"+
 			"Write a concise, plain-language summary (3-4 sentences) for a non-expert "+
 			"investor. Explain what these numbers mean for the basket's performance "+
-			"and risk. Do not give financial advice.",
-		basketName, result.CAGR, result.XIRR, result.Drawdown, result.FinalValue,
+			"and risk. For a SIP, note that XIRR is the more meaningful return "+
+			"measure. Do not give financial advice.",
+		investment, basketName, result.CAGR, result.XIRR, result.Drawdown,
+		result.TotalInvested, result.FinalValue,
 	)
 
 	body, err := json.Marshal(messageRequest{
