@@ -13,7 +13,7 @@ import (
 // NewRouter builds the HTTP handler for the API, including routes and the
 // per-IP rate-limiting middleware.
 func NewRouter(cfg *config.Config) http.Handler {
-	h := handlers.New(cfg.ClaudeAPIKey)
+	h := handlers.New()
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {

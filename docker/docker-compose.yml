@@ -43,7 +43,6 @@ services:
     environment:
       DB_URL: postgres://user:password@postgres:5432/mf_backtester?sslmode=disable
       REDIS_URL: redis://redis:6379
-      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       PORT: "8080"
     ports:
       - "8080:8080"

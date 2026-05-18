@@ -14,8 +14,8 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "claude key optional",
-			cfg:     Config{DBUrl: "postgres://x", RedisUrl: "redis://y", ClaudeAPIKey: ""},
+			name:    "port optional",
+			cfg:     Config{DBUrl: "postgres://x", RedisUrl: "redis://y"},
 			wantErr: false,
 		},
 		{

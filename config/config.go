@@ -10,15 +10,13 @@ import (
 )
 
 type Config struct {
-	DBUrl        string
-	RedisUrl     string
-	ClaudeAPIKey string
-	Port         string
+	DBUrl    string
+	RedisUrl string
+	Port     string
 }
 
 // Validate reports whether the required configuration is present. DB_URL and
-// REDIS_URL are mandatory; CLAUDE_API_KEY is optional (only /summary needs it)
-// and PORT has a default.
+// REDIS_URL are mandatory, and PORT has a default.
 func (c *Config) Validate() error {
 	var missing []string
 	if c.DBUrl == "" {
@@ -41,10 +39,9 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		DBUrl:        getEnv("DB_URL", ""),
-		RedisUrl:     getEnv("REDIS_URL", ""),
-		ClaudeAPIKey: getEnv("CLAUDE_API_KEY", ""),
-		Port:         getEnv("PORT", "8080"),
+		DBUrl:    getEnv("DB_URL", ""),
+		RedisUrl: getEnv("REDIS_URL", ""),
+		Port:     getEnv("PORT", "8080"),
 	}
 }
 

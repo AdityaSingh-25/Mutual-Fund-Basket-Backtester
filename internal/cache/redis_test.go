@@ -41,23 +41,3 @@ func TestGetBacktestResultMiss(t *testing.T) {
 		t.Error("expected an error for a missing cache key")
 	}
 }
-
-func TestSummaryRoundTrip(t *testing.T) {
-	testsupport.RequireRedis(t)
-
-	const key = "test:summary:roundtrip"
-	const want = "Your basket grew steadily over the period."
-
-	if err := cache.SetSummary(key, want); err != nil {
-		t.Fatalf("SetSummary: %v", err)
-	}
-	t.Cleanup(func() { cache.RDB.Del(cache.Ctx, key) })
-
-	got, err := cache.GetSummary(key)
-	if err != nil {
-		t.Fatalf("GetSummary: %v", err)
-	}
-	if got != want {
-		t.Errorf("GetSummary = %q, want %q", got, want)
-	}
-}

@@ -23,9 +23,6 @@ func main() {
 	if err := cfg.Validate(); err != nil {
 		log.Fatal("Configuration error: ", err)
 	}
-	if cfg.ClaudeAPIKey == "" {
-		log.Println("Warning: CLAUDE_API_KEY not set; the /summary endpoint will be unavailable")
-	}
 
 	db.InitDB(cfg.DBUrl)
 	if err := db.RunMigrations(migrations.Files); err != nil {

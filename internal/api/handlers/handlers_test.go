@@ -33,7 +33,7 @@ func jsonRequest(t *testing.T, method, target string, body any) *http.Request {
 func TestCreateBasketHandler(t *testing.T) {
 	testsupport.RequireDB(t)
 
-	h := handlers.New("")
+	h := handlers.New()
 	fundID := testsupport.InsertFund(t, "Create Basket Handler Fund")
 
 	body := models.CreateBasketRequest{
@@ -64,7 +64,7 @@ func TestCreateBasketHandler(t *testing.T) {
 func TestCreateBasketValidation(t *testing.T) {
 	testsupport.RequireDB(t)
 
-	h := handlers.New("")
+	h := handlers.New()
 	fundID := testsupport.InsertFund(t, "Validation Fund")
 
 	cases := []struct {
@@ -121,7 +121,7 @@ func TestCreateBasketValidation(t *testing.T) {
 func TestCreateBasketBadJSON(t *testing.T) {
 	testsupport.RequireDB(t)
 
-	h := handlers.New("")
+	h := handlers.New()
 	req := httptest.NewRequest(http.MethodPost, "/baskets", strings.NewReader("{not valid"))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -136,7 +136,7 @@ func TestCreateBasketBadJSON(t *testing.T) {
 func TestGetBasketHandler(t *testing.T) {
 	testsupport.RequireDB(t)
 
-	h := handlers.New("")
+	h := handlers.New()
 	basketID := testsupport.InsertBasket(t, "Gettable Basket")
 
 	t.Run("found", func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestGetBasketHandler(t *testing.T) {
 func TestListBasketsHandler(t *testing.T) {
 	testsupport.RequireDB(t)
 
-	h := handlers.New("")
+	h := handlers.New()
 	basketID := testsupport.InsertBasket(t, "Basket In The List")
 
 	rec := httptest.NewRecorder()
@@ -201,7 +201,7 @@ func TestListBasketsHandler(t *testing.T) {
 func TestDeleteBasketHandler(t *testing.T) {
 	testsupport.RequireDB(t)
 
-	h := handlers.New("")
+	h := handlers.New()
 	basketID := testsupport.InsertBasket(t, "Deletable Basket")
 
 	del := func() int {
@@ -223,7 +223,7 @@ func TestDeleteBasketHandler(t *testing.T) {
 func TestSearchFundsHandler(t *testing.T) {
 	testsupport.RequireDB(t)
 
-	h := handlers.New("")
+	h := handlers.New()
 	fundID := testsupport.InsertFund(t, "Zephyr Quantum Handler Fund")
 
 	t.Run("matches by name", func(t *testing.T) {
@@ -248,4 +248,52 @@ func TestSearchFundsHandler(t *testing.T) {
 			t.Errorf("status = %d, want 400", rec.Code)
 		}
 	})
+}
+
+func TestSummaryHandlerUsesLocalTemplate(t *testing.T) {
+	testsupport.RequireDB(t)
+	testsupport.RequireRedis(t)
+
+	h := handlers.New()
+	fundID := testsupport.InsertFund(t, "Summary Template Fund")
+	testsupport.InsertNAV(t, fundID, "2021-01-01", 100)
+	testsupport.InsertNAV(t, fundID, "2022-01-01", 120)
+
+	basketID := testsupport.InsertBasket(t, "Summary Template Basket")
+	if err := db.InsertBasketItem(basketID, fundID, 100); err != nil {
+		t.Fatalf("InsertBasketItem: %v", err)
+	}
+
+	body := models.BacktestRequest{
+		BasketID:  basketID,
+		StartDate: "2021-01-01",
+		EndDate:   "2022-01-01",
+		Amount:    10000,
+		Mode:      "lumpsum",
+	}
+
+	rec := httptest.NewRecorder()
+	h.GetSummary(rec, jsonRequest(t, http.MethodPost, "/summary", body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		Basket  string                `json:"basket"`
+		Result  models.BacktestResult `json:"result"`
+		Summary string                `json:"summary"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	wantSummary := "This basket ended at ₹12000.00 from ₹10000.00 invested, with an XIRR of 20.00%. " +
+		"Its worst drawdown was 0.00%, meaning the portfolio fell that much from a prior high during the period."
+	if got.Basket != "Summary Template Basket" {
+		t.Errorf("Basket = %q, want Summary Template Basket", got.Basket)
+	}
+	if got.Summary != wantSummary {
+		t.Errorf("Summary = %q, want %q", got.Summary, wantSummary)
+	}
 }

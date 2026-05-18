@@ -10,14 +10,12 @@ import (
 	"MFBasketBacktester/internal/backtest"
 )
 
-// Handlers bundles the dependencies the HTTP handlers need.
-type Handlers struct {
-	ClaudeAPIKey string
-}
+// Handlers bundles the HTTP handlers.
+type Handlers struct{}
 
-// New builds a Handlers value with the given configuration.
-func New(claudeAPIKey string) *Handlers {
-	return &Handlers{ClaudeAPIKey: claudeAPIKey}
+// New builds a Handlers value.
+func New() *Handlers {
+	return &Handlers{}
 }
 
 // writeJSON serialises v as a JSON response with the given status code.
