@@ -35,6 +35,7 @@ func NewRouter(cfg *config.Config) http.Handler {
 	limiter := middleware.NewRateLimiter(5, 10)
 
 	// Logging is outermost so it records every response, including the 429s
-	// produced by the rate limiter.
-	return middleware.Logging(limiter.Limit(mux))
+	// produced by the rate limiter. CORS sits just inside it so cross-origin
+	// preflight requests are answered before rate limiting and routing.
+	return middleware.Logging(middleware.CORS(limiter.Limit(mux)))
 }

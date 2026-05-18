@@ -37,7 +37,8 @@ A Go backend service for building custom mutual fund portfolios and backtesting 
 │   ├── ingestion/      # AMFI NAV fetcher and scheduler
 │   ├── models/         # Shared data types
 │   └── testsupport/    # Integration-test helpers
-└── migrations/         # Embedded SQL schema files
+├── migrations/         # Embedded SQL schema files
+└── web/                # React + TypeScript frontend (Vite)
 ```
 
 ## Setup
@@ -94,6 +95,20 @@ the one-shot backfill command:
 ```bash
 go run ./cmd/backfill
 ```
+
+### Frontend
+
+The web frontend is a React + TypeScript app (Vite), in [`web/`](web/):
+
+```bash
+cd web
+npm install
+npm run dev      # dev server on http://localhost:5173
+```
+
+It calls the API at `http://localhost:8080` by default; override that with
+`VITE_API_BASE_URL` (see `web/.env.example`). The backend enables CORS, so the
+dev server can call it directly — just make sure the server is running.
 
 ## Database Schema
 
