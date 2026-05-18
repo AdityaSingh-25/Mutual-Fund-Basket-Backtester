@@ -2,6 +2,7 @@ package backtest
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -21,13 +22,14 @@ func nav(t *testing.T, date string, value float64) models.NAVRecord {
 
 func TestSimulate(t *testing.T) {
 	cases := []struct {
-		name         string
-		funds        func(t *testing.T) []FundInput
-		amount       float64
-		wantCAGR     float64
-		wantXIRR     float64
-		wantDrawdown float64
-		wantFinal    float64
+		name          string
+		funds         func(t *testing.T) []FundInput
+		amount        float64
+		wantCAGR      float64
+		wantXIRR      float64
+		wantDrawdown  float64
+		wantFinal     float64
+		wantSeriesLen int
 	}{
 		{
 			// 100 units bought at NAV 100; NAV grows 50% over exactly one year.
@@ -42,11 +44,12 @@ func TestSimulate(t *testing.T) {
 					},
 				}}
 			},
-			amount:       10000,
-			wantCAGR:     50,
-			wantXIRR:     50,
-			wantDrawdown: 0,
-			wantFinal:    15000,
+			amount:        10000,
+			wantCAGR:      50,
+			wantXIRR:      50,
+			wantDrawdown:  0,
+			wantFinal:     15000,
+			wantSeriesLen: 2,
 		},
 		{
 			// Weights 6 and 4 must be normalised to 60% / 40%.
@@ -63,11 +66,12 @@ func TestSimulate(t *testing.T) {
 					}},
 				}
 			},
-			amount:       10000,
-			wantCAGR:     32,
-			wantXIRR:     32,
-			wantDrawdown: 0,
-			wantFinal:    13200,
+			amount:        10000,
+			wantCAGR:      32,
+			wantXIRR:      32,
+			wantDrawdown:  0,
+			wantFinal:     13200,
+			wantSeriesLen: 2,
 		},
 		{
 			// A mid-period dip to NAV 80 is a 20% drawdown from the 100 peak.
@@ -83,17 +87,18 @@ func TestSimulate(t *testing.T) {
 					},
 				}}
 			},
-			amount:       10000,
-			wantCAGR:     20,
-			wantXIRR:     20,
-			wantDrawdown: 20,
-			wantFinal:    12000,
+			amount:        10000,
+			wantCAGR:      20,
+			wantXIRR:      20,
+			wantDrawdown:  20,
+			wantFinal:     12000,
+			wantSeriesLen: 3,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Simulate(tc.funds(t), tc.amount)
+			got, err := Simulate(tc.funds(t), tc.amount, false)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -108,6 +113,15 @@ func TestSimulate(t *testing.T) {
 			}
 			if got.FinalValue != tc.wantFinal {
 				t.Errorf("FinalValue = %v, want %v", got.FinalValue, tc.wantFinal)
+			}
+			if got.Mode != "lumpsum" {
+				t.Errorf("Mode = %q, want %q", got.Mode, "lumpsum")
+			}
+			if got.TotalInvested != tc.amount {
+				t.Errorf("TotalInvested = %v, want %v", got.TotalInvested, tc.amount)
+			}
+			if len(got.Series) != tc.wantSeriesLen {
+				t.Errorf("len(Series) = %d, want %d", len(got.Series), tc.wantSeriesLen)
 			}
 		})
 	}
@@ -128,7 +142,7 @@ func TestSimulateClampsToCommonStart(t *testing.T) {
 		}},
 	}
 
-	got, err := Simulate(funds, 10000)
+	got, err := Simulate(funds, 10000, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -140,6 +154,50 @@ func TestSimulateClampsToCommonStart(t *testing.T) {
 	}
 	if got.Drawdown != 0 {
 		t.Errorf("Drawdown = %v, want 0", got.Drawdown)
+	}
+}
+
+// TestSimulateSIP checks that a monthly SIP makes one contribution per month,
+// accumulating units. With a flat NAV the investor simply gets their money
+// back: zero growth and zero drawdown.
+func TestSimulateSIP(t *testing.T) {
+	funds := []FundInput{{
+		Label:  "fund A",
+		Weight: 1,
+		Records: []models.NAVRecord{
+			nav(t, "2021-01-01", 100),
+			nav(t, "2021-02-01", 100),
+			nav(t, "2021-03-01", 100),
+			nav(t, "2021-04-01", 100),
+		},
+	}}
+
+	got, err := Simulate(funds, 1000, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Four monthly contributions of 1000, each buying 10 units at NAV 100.
+	if got.Mode != "sip" {
+		t.Errorf("Mode = %q, want %q", got.Mode, "sip")
+	}
+	if got.TotalInvested != 4000 {
+		t.Errorf("TotalInvested = %v, want 4000", got.TotalInvested)
+	}
+	if got.FinalValue != 4000 {
+		t.Errorf("FinalValue = %v, want 4000", got.FinalValue)
+	}
+	if got.CAGR != 0 {
+		t.Errorf("CAGR = %v, want 0", got.CAGR)
+	}
+	if got.Drawdown != 0 {
+		t.Errorf("Drawdown = %v, want 0", got.Drawdown)
+	}
+	if math.Abs(got.XIRR) > 0.5 {
+		t.Errorf("XIRR = %v, want approximately 0", got.XIRR)
+	}
+	if len(got.Series) != 4 {
+		t.Errorf("len(Series) = %d, want 4", len(got.Series))
 	}
 }
 
@@ -200,7 +258,7 @@ func TestSimulateErrors(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Simulate(tc.funds, tc.amount)
+			_, err := Simulate(tc.funds, tc.amount, false)
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tc.wantErr)
 			}

@@ -28,7 +28,7 @@ func TestRunIntegration(t *testing.T) {
 		t.Fatalf("InsertBasketItem: %v", err)
 	}
 
-	result, err := Run(basketID, "2021-01-01", "2022-01-01", 10000)
+	result, err := Run(basketID, "2021-01-01", "2022-01-01", 10000, false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -40,25 +40,62 @@ func TestRunIntegration(t *testing.T) {
 	if result.CAGR != 32 {
 		t.Errorf("CAGR = %v, want 32", result.CAGR)
 	}
+	if result.Mode != "lumpsum" {
+		t.Errorf("Mode = %q, want lumpsum", result.Mode)
+	}
+	if len(result.Series) != 2 {
+		t.Errorf("len(Series) = %d, want 2", len(result.Series))
+	}
+}
+
+// TestRunSIPIntegration verifies a monthly SIP through the DB-backed wrapper:
+// four contributions of 1000 at a flat NAV return exactly the money invested.
+func TestRunSIPIntegration(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	fund := testsupport.InsertFund(t, "Run SIP Fund")
+	for _, date := range []string{"2021-01-01", "2021-02-01", "2021-03-01", "2021-04-01"} {
+		testsupport.InsertNAV(t, fund, date, 100)
+	}
+
+	basketID := testsupport.InsertBasket(t, "Run SIP Basket")
+	if err := db.InsertBasketItem(basketID, fund, 100); err != nil {
+		t.Fatalf("InsertBasketItem: %v", err)
+	}
+
+	result, err := Run(basketID, "2021-01-01", "2021-04-01", 1000, true)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if result.Mode != "sip" {
+		t.Errorf("Mode = %q, want sip", result.Mode)
+	}
+	if result.TotalInvested != 4000 {
+		t.Errorf("TotalInvested = %v, want 4000", result.TotalInvested)
+	}
+	if result.FinalValue != 4000 {
+		t.Errorf("FinalValue = %v, want 4000", result.FinalValue)
+	}
 }
 
 func TestRunErrors(t *testing.T) {
 	testsupport.RequireDB(t)
 
 	t.Run("nonexistent basket", func(t *testing.T) {
-		if _, err := Run(99_999_999, "2021-01-01", "2022-01-01", 10000); err == nil {
+		if _, err := Run(99_999_999, "2021-01-01", "2022-01-01", 10000, false); err == nil {
 			t.Error("expected an error for a nonexistent basket")
 		}
 	})
 
 	t.Run("invalid start date", func(t *testing.T) {
-		if _, err := Run(1, "not-a-date", "2022-01-01", 10000); err == nil {
+		if _, err := Run(1, "not-a-date", "2022-01-01", 10000, false); err == nil {
 			t.Error("expected an error for an invalid start date")
 		}
 	})
 
 	t.Run("end before start", func(t *testing.T) {
-		if _, err := Run(1, "2022-01-01", "2021-01-01", 10000); err == nil {
+		if _, err := Run(1, "2022-01-01", "2021-01-01", 10000, false); err == nil {
 			t.Error("expected an error when end_date precedes start_date")
 		}
 	})
