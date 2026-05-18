@@ -79,6 +79,28 @@ func TestRunSIPIntegration(t *testing.T) {
 	}
 }
 
+// TestRunFundIntegration checks the single-fund backtest used for benchmarks.
+func TestRunFundIntegration(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	fund := testsupport.InsertFund(t, "RunFund Benchmark Fund")
+	testsupport.InsertNAV(t, fund, "2021-01-01", 100)
+	testsupport.InsertNAV(t, fund, "2022-01-01", 150)
+
+	result, err := RunFund(fund, "2021-01-01", "2022-01-01", 10000, false)
+	if err != nil {
+		t.Fatalf("RunFund: %v", err)
+	}
+
+	// 100 units bought at NAV 100, valued at 150 → 15000; 50% over one year.
+	if result.FinalValue != 15000 {
+		t.Errorf("FinalValue = %v, want 15000", result.FinalValue)
+	}
+	if result.CAGR != 50 {
+		t.Errorf("CAGR = %v, want 50", result.CAGR)
+	}
+}
+
 func TestRunErrors(t *testing.T) {
 	testsupport.RequireDB(t)
 
