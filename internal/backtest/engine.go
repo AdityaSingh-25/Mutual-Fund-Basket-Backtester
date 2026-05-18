@@ -83,6 +83,36 @@ func Run(basketID int, startDate, endDate string, amount float64, sip bool) (mod
 	return Simulate(funds, amount, sip)
 }
 
+// RunFund backtests a single fund as a 100%-weight portfolio, loading its NAV
+// data from the database. It is used to produce benchmark comparisons over
+// the same date range, amount and mode as a basket backtest.
+func RunFund(fundID int, startDate, endDate string, amount float64, sip bool) (models.BacktestResult, error) {
+	var result models.BacktestResult
+
+	start, err := time.Parse(dateLayout, startDate)
+	if err != nil {
+		return result, invalid("invalid start_date, expected YYYY-MM-DD")
+	}
+	end, err := time.Parse(dateLayout, endDate)
+	if err != nil {
+		return result, invalid("invalid end_date, expected YYYY-MM-DD")
+	}
+	if !end.After(start) {
+		return result, invalid("end_date must be after start_date")
+	}
+
+	records, err := db.GetNAVHistory(fundID, startDate, endDate)
+	if err != nil {
+		return result, err
+	}
+
+	return Simulate([]FundInput{{
+		Label:   fmt.Sprintf("benchmark fund %d", fundID),
+		Weight:  1,
+		Records: records,
+	}}, amount, sip)
+}
+
 // Simulate is the pure, database-free core of a backtest. It splits each
 // contribution across funds by normalised weight and buys units at that day's
 // NAVs; portfolio value on any later date is the sum of accumulated units

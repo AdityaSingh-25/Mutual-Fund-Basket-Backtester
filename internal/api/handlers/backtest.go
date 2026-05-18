@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -30,8 +31,36 @@ func cacheKey(req models.BacktestRequest, sip bool) string {
 	if sip {
 		mode = "sip"
 	}
-	return fmt.Sprintf("backtest:%d:%s:%s:%s:%.2f",
-		req.BasketID, mode, req.StartDate, req.EndDate, req.Amount)
+	return fmt.Sprintf("backtest:%d:%s:%s:%s:%.2f:b%d",
+		req.BasketID, mode, req.StartDate, req.EndDate, req.Amount, req.BenchmarkFundID)
+}
+
+// benchmarkResult runs the optional benchmark-fund comparison. On failure it
+// returns the HTTP status and error the handler should report.
+func benchmarkResult(req models.BacktestRequest, sip bool) (*models.BacktestResult, int, error) {
+	exists, err := db.FundExists(req.BenchmarkFundID)
+	if err != nil {
+		return nil, http.StatusInternalServerError, errors.New("could not validate benchmark fund")
+	}
+	if !exists {
+		return nil, http.StatusBadRequest,
+			fmt.Errorf("benchmark fund %d does not exist", req.BenchmarkFundID)
+	}
+
+	if err := ingestion.EnsureHistory(req.BenchmarkFundID); err != nil {
+		return nil, http.StatusBadGateway,
+			fmt.Errorf("could not load benchmark fund history: %w", err)
+	}
+
+	bench, err := backtest.RunFund(req.BenchmarkFundID, req.StartDate, req.EndDate, req.Amount, sip)
+	if err != nil {
+		var ve backtest.ValidationError
+		if errors.As(err, &ve) {
+			return nil, http.StatusBadRequest, err
+		}
+		return nil, http.StatusInternalServerError, errors.New("could not run benchmark")
+	}
+	return &bench, 0, nil
 }
 
 // ensureBasketHistory backfills full NAV history for every fund in a basket
@@ -85,6 +114,15 @@ func (h *Handlers) RunBacktest(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeBacktestError(w, req.BasketID, err)
 		return
+	}
+
+	if req.BenchmarkFundID > 0 {
+		benchmark, status, err := benchmarkResult(req, sip)
+		if err != nil {
+			writeError(w, status, err.Error())
+			return
+		}
+		result.Benchmark = benchmark
 	}
 
 	if err := cache.SetBacktestResult(key, result); err != nil {

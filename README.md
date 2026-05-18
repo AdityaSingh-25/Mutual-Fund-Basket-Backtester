@@ -148,13 +148,17 @@ NAVs; the portfolio is valued (forward-filled) through the end date.
 - `lumpsum` (default) — `amount` is invested once at the start.
 - `sip` — `amount` is invested every month (a Systematic Investment Plan).
 
+`benchmark_fund_id` is optional; when set, the basket is also backtested
+against that single fund over the same range, amount and mode.
+
 ```json
 {
   "basket_id": 1,
   "start_date": "2020-01-01",
   "end_date": "2024-01-01",
   "amount": 100000,
-  "mode": "lumpsum"
+  "mode": "lumpsum",
+  "benchmark_fund_id": 119551
 }
 ```
 
@@ -171,13 +175,24 @@ Response:
   "series": [
     { "date": "2020-01-01", "value": 100000.0 },
     { "date": "2020-01-02", "value": 100450.0 }
-  ]
+  ],
+  "benchmark": {
+    "mode": "lumpsum",
+    "cagr": 12.1,
+    "xirr": 12.1,
+    "drawdown": 25.4,
+    "total_invested": 100000.0,
+    "final_value": 140900.0,
+    "series": [ ... ]
+  }
 }
 ```
 
 `series` is the daily portfolio value, suitable for charting. For a SIP,
 `total_invested` is the sum of all monthly contributions and `xirr` is the
 more meaningful return measure (CAGR treats all money as invested upfront).
+`benchmark` is present only when `benchmark_fund_id` was supplied, and carries
+the same fields for the comparison fund.
 
 Results are cached in Redis; the `X-Cache` response header reports `HIT`,
 `MISS`, or `SKIP`.

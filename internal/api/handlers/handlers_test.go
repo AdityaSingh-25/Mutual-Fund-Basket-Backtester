@@ -297,3 +297,89 @@ func TestSummaryHandlerUsesLocalTemplate(t *testing.T) {
 		t.Errorf("Summary = %q, want %q", got.Summary, wantSummary)
 	}
 }
+
+func TestRunBacktestWithBenchmark(t *testing.T) {
+	testsupport.RequireDB(t)
+	testsupport.RequireRedis(t)
+
+	h := handlers.New()
+
+	basketFund := testsupport.InsertFund(t, "Benchmark Test Basket Fund")
+	testsupport.InsertNAV(t, basketFund, "2021-01-01", 100)
+	testsupport.InsertNAV(t, basketFund, "2022-01-01", 130)
+
+	benchFund := testsupport.InsertFund(t, "Benchmark Test Index Fund")
+	testsupport.InsertNAV(t, benchFund, "2021-01-01", 200)
+	testsupport.InsertNAV(t, benchFund, "2022-01-01", 220)
+
+	basketID := testsupport.InsertBasket(t, "Benchmark Test Basket")
+	if err := db.InsertBasketItem(basketID, basketFund, 100); err != nil {
+		t.Fatalf("InsertBasketItem: %v", err)
+	}
+
+	body := models.BacktestRequest{
+		BasketID:        basketID,
+		StartDate:       "2021-01-01",
+		EndDate:         "2022-01-01",
+		Amount:          10000,
+		BenchmarkFundID: benchFund,
+	}
+
+	rec := httptest.NewRecorder()
+	h.RunBacktest(rec, jsonRequest(t, http.MethodPost, "/backtest", body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+
+	var got models.BacktestResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	// Basket: 100 units at 100, valued at 130 → 13000.
+	if got.FinalValue != 13000 {
+		t.Errorf("basket FinalValue = %v, want 13000", got.FinalValue)
+	}
+	if got.Benchmark == nil {
+		t.Fatal("Benchmark is nil, want a benchmark result")
+	}
+	// Benchmark: 50 units at 200, valued at 220 → 11000.
+	if got.Benchmark.FinalValue != 11000 {
+		t.Errorf("benchmark FinalValue = %v, want 11000", got.Benchmark.FinalValue)
+	}
+	if got.Benchmark.Benchmark != nil {
+		t.Error("nested benchmark should not itself carry a benchmark")
+	}
+}
+
+func TestRunBacktestBenchmarkNotFound(t *testing.T) {
+	testsupport.RequireDB(t)
+	testsupport.RequireRedis(t)
+
+	h := handlers.New()
+
+	fund := testsupport.InsertFund(t, "Benchmark NotFound Basket Fund")
+	testsupport.InsertNAV(t, fund, "2021-01-01", 100)
+	testsupport.InsertNAV(t, fund, "2022-01-01", 110)
+
+	basketID := testsupport.InsertBasket(t, "Benchmark NotFound Basket")
+	if err := db.InsertBasketItem(basketID, fund, 100); err != nil {
+		t.Fatalf("InsertBasketItem: %v", err)
+	}
+
+	body := models.BacktestRequest{
+		BasketID:        basketID,
+		StartDate:       "2021-01-01",
+		EndDate:         "2022-01-01",
+		Amount:          10000,
+		BenchmarkFundID: 99_999_999,
+	}
+
+	rec := httptest.NewRecorder()
+	h.RunBacktest(rec, jsonRequest(t, http.MethodPost, "/backtest", body))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for a nonexistent benchmark fund", rec.Code)
+	}
+}
