@@ -402,3 +402,39 @@ func TestRunBacktestInvalidRebalance(t *testing.T) {
 		t.Errorf("status = %d, want 400 for an invalid rebalance period", rec.Code)
 	}
 }
+
+func TestGetFundHandler(t *testing.T) {
+	testsupport.RequireDB(t)
+
+	h := handlers.New()
+	fundID := testsupport.InsertFund(t, "Get Fund Handler Test")
+
+	t.Run("found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/funds/"+strconv.Itoa(fundID), nil)
+		req.SetPathValue("id", strconv.Itoa(fundID))
+		h.GetFund(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		var got models.Fund
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if got.ID != fundID {
+			t.Errorf("ID = %d, want %d", got.ID, fundID)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/funds/99999999", nil)
+		req.SetPathValue("id", "99999999")
+		h.GetFund(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404", rec.Code)
+		}
+	})
+}

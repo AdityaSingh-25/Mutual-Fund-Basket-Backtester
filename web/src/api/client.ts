@@ -42,6 +42,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+// errorMessage extracts a human-readable string from a thrown value.
+export function errorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message
+  return 'something went wrong'
+}
+
 // api wraps every backtester endpoint with a typed call.
 export const api = {
   health: () => request<{ status: string }>('/health'),
@@ -50,6 +56,7 @@ export const api = {
     request<Fund[]>(
       `/funds?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`,
     ),
+  getFund: (id: number) => request<Fund>(`/funds/${id}`),
 
   listBaskets: () => request<Basket[]>('/baskets'),
   getBasket: (id: number) => request<Basket>(`/baskets/${id}`),

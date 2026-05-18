@@ -1,10 +1,15 @@
-import Placeholder from './Placeholder'
+import FundSearch from '../components/FundSearch'
+import styles from './Page.module.css'
 
 export default function Funds() {
   return (
-    <Placeholder
-      title="Funds"
-      note="Search mutual funds here — coming in the next phase."
-    />
+    <section>
+      <h1 className={styles.title}>Funds</h1>
+      <p className={styles.lede}>
+        Browse the mutual funds ingested from AMFI. Use the IDs and names here
+        when building a basket.
+      </p>
+      <FundSearch />
+    </section>
   )
 }

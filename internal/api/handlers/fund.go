@@ -53,3 +53,20 @@ func (h *Handlers) SearchFunds(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, funds)
 }
+
+// GetFund handles GET /funds/{id} — it returns a single fund by id.
+func (h *Handlers) GetFund(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid fund id")
+		return
+	}
+
+	fund, err := db.GetFund(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "fund not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, fund)
+}
