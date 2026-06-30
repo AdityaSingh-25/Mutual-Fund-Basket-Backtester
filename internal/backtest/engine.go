@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	"MFBasketBacktester/internal/compute"
@@ -82,17 +83,38 @@ func Run(basketID int, startDate, endDate string, amount float64, sip bool, reba
 		return result, invalid("basket has no funds")
 	}
 
-	funds := make([]FundInput, 0, len(items))
-	for _, it := range items {
-		records, err := db.GetNAVHistory(it.FundID, startDate, endDate)
-		if err != nil {
-			return result, err
-		}
-		funds = append(funds, FundInput{
-			Label:   fmt.Sprintf("fund %d", it.FundID),
-			Weight:  it.Weight,
-			Records: records,
-		})
+	// Load each fund's NAV history concurrently. A basket holds only a handful
+	// of funds, so an unbounded goroutine per fund is fine and turns N serial
+	// round trips into one. Results are written by index to preserve order.
+	funds := make([]FundInput, len(items))
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		firstErr error
+	)
+	for i, it := range items {
+		wg.Add(1)
+		go func(i int, it models.BasketItem) {
+			defer wg.Done()
+			records, err := db.GetNAVHistory(it.FundID, startDate, endDate)
+			if err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+				return
+			}
+			funds[i] = FundInput{
+				Label:   fmt.Sprintf("fund %d", it.FundID),
+				Weight:  it.Weight,
+				Records: records,
+			}
+		}(i, it)
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return result, firstErr
 	}
 
 	return Simulate(funds, amount, sip, rebalance)
