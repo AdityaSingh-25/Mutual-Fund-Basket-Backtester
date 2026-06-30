@@ -32,11 +32,17 @@ func NewRouter(cfg *config.Config) http.Handler {
 	mux.HandleFunc("POST /backtest", h.RunBacktest)
 	mux.HandleFunc("POST /summary", h.GetSummary)
 
-	// Allow short bursts of 10 requests, then 5 sustained requests/second/IP.
-	limiter := middleware.NewRateLimiter(5, 10)
+	var handler http.Handler = mux
+
+	// Per-IP rate limiting, configurable via RATE_LIMIT_RPS / RATE_LIMIT_BURST.
+	// A non-positive rate disables it entirely (useful for load testing).
+	if cfg.RateLimitRPS > 0 {
+		limiter := middleware.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
+		handler = limiter.Limit(handler)
+	}
 
 	// Logging is outermost so it records every response, including the 429s
 	// produced by the rate limiter. CORS sits just inside it so cross-origin
 	// preflight requests are answered before rate limiting and routing.
-	return middleware.Logging(middleware.CORS(limiter.Limit(mux)))
+	return middleware.Logging(middleware.CORS(handler))
 }

@@ -118,9 +118,13 @@ func (h *Handlers) RunBacktest(w http.ResponseWriter, r *http.Request) {
 
 	key := cacheKey(req, sip, rebalance)
 
-	if cached, err := cache.GetBacktestResult(key); err == nil && cached != nil {
+	// Hot path: serve the cached JSON bytes directly, skipping the
+	// unmarshal-then-remarshal round trip the typed result would require.
+	if raw, err := cache.GetBacktestRaw(key); err == nil && len(raw) > 0 {
 		w.Header().Set("X-Cache", "HIT")
-		writeJSON(w, http.StatusOK, cached)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(raw)
 		return
 	}
 

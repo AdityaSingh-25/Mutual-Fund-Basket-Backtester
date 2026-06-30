@@ -1,13 +1,29 @@
 package db
 
 import (
+	"context"
+	"time"
+
 	"MFBasketBacktester/internal/models"
 )
 
+// queryTimeout bounds how long any single query may run. It fails a slow or
+// stuck query fast instead of letting goroutines pile up under load.
+const queryTimeout = 5 * time.Second
+
+// queryCtx returns a context carrying the standard query timeout. Callers must
+// defer the returned cancel func.
+func queryCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), queryTimeout)
+}
+
 func InsertBasket(name string) (int, error) {
+	ctx, cancel := queryCtx()
+	defer cancel()
+
 	var basketID int
 
-	err := DB.QueryRow(`
+	err := DB.QueryRowContext(ctx, `
 		INSERT INTO baskets (name)
 		VALUES ($1)
 		RETURNING id
@@ -17,9 +33,12 @@ func InsertBasket(name string) (int, error) {
 }
 
 func GetBasket(id int) (models.Basket, error) {
+	ctx, cancel := queryCtx()
+	defer cancel()
+
 	var basket models.Basket
 
-	err := DB.QueryRow(`
+	err := DB.QueryRowContext(ctx, `
 		SELECT id, name, created_at
 		FROM baskets
 		WHERE id = $1
@@ -33,7 +52,10 @@ func GetBasket(id int) (models.Basket, error) {
 }
 
 func ListBaskets() ([]models.Basket, error) {
-	rows, err := DB.Query(`
+	ctx, cancel := queryCtx()
+	defer cancel()
+
+	rows, err := DB.QueryContext(ctx, `
 		SELECT id, name, created_at
 		FROM baskets
 		ORDER BY created_at DESC
@@ -68,17 +90,20 @@ func ListBaskets() ([]models.Basket, error) {
 // DeleteBasket removes a basket and its items in a single transaction. It
 // returns the number of basket rows deleted (0 if the basket did not exist).
 func DeleteBasket(id int) (int64, error) {
-	tx, err := DB.Begin()
+	ctx, cancel := queryCtx()
+	defer cancel()
+
+	tx, err := DB.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(`DELETE FROM basket_items WHERE basket_id = $1`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM basket_items WHERE basket_id = $1`, id); err != nil {
 		return 0, err
 	}
 
-	res, err := tx.Exec(`DELETE FROM baskets WHERE id = $1`, id)
+	res, err := tx.ExecContext(ctx, `DELETE FROM baskets WHERE id = $1`, id)
 	if err != nil {
 		return 0, err
 	}
@@ -96,7 +121,10 @@ func DeleteBasket(id int) (int64, error) {
 }
 
 func InsertBasketItem(basketID int, fundID int, weight float64) error {
-	_, err := DB.Exec(`
+	ctx, cancel := queryCtx()
+	defer cancel()
+
+	_, err := DB.ExecContext(ctx, `
 		INSERT INTO basket_items (basket_id, fund_id, weight)
 		VALUES ($1, $2, $3)
 	`, basketID, fundID, weight)
@@ -105,7 +133,10 @@ func InsertBasketItem(basketID int, fundID int, weight float64) error {
 }
 
 func GetBasketItems(basketID int) ([]models.BasketItem, error) {
-	rows, err := DB.Query(`
+	ctx, cancel := queryCtx()
+	defer cancel()
+
+	rows, err := DB.QueryContext(ctx, `
 		SELECT id, basket_id, fund_id, weight
 		FROM basket_items
 		WHERE basket_id = $1
@@ -142,7 +173,10 @@ func GetBasketItems(basketID int) ([]models.BasketItem, error) {
 // BasketFundIDs returns the distinct fund ids referenced by any basket — the
 // set of funds worth proactively backfilling NAV history for.
 func BasketFundIDs() ([]int, error) {
-	rows, err := DB.Query(`
+	ctx, cancel := queryCtx()
+	defer cancel()
+
+	rows, err := DB.QueryContext(ctx, `
 		SELECT DISTINCT fund_id
 		FROM basket_items
 		ORDER BY fund_id ASC
@@ -167,9 +201,12 @@ func BasketFundIDs() ([]int, error) {
 }
 
 func CountNAVDates(fundID int) (int, error) {
+	ctx, cancel := queryCtx()
+	defer cancel()
+
 	var count int
 
-	err := DB.QueryRow(`
+	err := DB.QueryRowContext(ctx, `
 		SELECT COUNT(DISTINCT date)
 		FROM nav
 		WHERE fund_id = $1
@@ -179,9 +216,12 @@ func CountNAVDates(fundID int) (int, error) {
 }
 
 func GetFund(id int) (models.Fund, error) {
+	ctx, cancel := queryCtx()
+	defer cancel()
+
 	var fund models.Fund
 
-	err := DB.QueryRow(`
+	err := DB.QueryRowContext(ctx, `
 		SELECT id, scheme_code, scheme_name,
 		       COALESCE(fund_house, ''), COALESCE(scheme_type, ''), created_at
 		FROM funds
@@ -201,7 +241,10 @@ func GetFund(id int) (models.Fund, error) {
 // SearchFunds returns funds whose scheme name contains query, or whose scheme
 // code starts with it, ordered by name and paginated by limit/offset.
 func SearchFunds(query string, limit, offset int) ([]models.Fund, error) {
-	rows, err := DB.Query(`
+	ctx, cancel := queryCtx()
+	defer cancel()
+
+	rows, err := DB.QueryContext(ctx, `
 		SELECT id, scheme_code, scheme_name,
 		       COALESCE(fund_house, ''), COALESCE(scheme_type, ''), created_at
 		FROM funds
@@ -242,9 +285,12 @@ func SearchFunds(query string, limit, offset int) ([]models.Fund, error) {
 
 // FundExists reports whether a fund with the given id is present.
 func FundExists(id int) (bool, error) {
+	ctx, cancel := queryCtx()
+	defer cancel()
+
 	var exists bool
 
-	err := DB.QueryRow(`
+	err := DB.QueryRowContext(ctx, `
 		SELECT EXISTS(SELECT 1 FROM funds WHERE id = $1)
 	`, id).Scan(&exists)
 
@@ -252,7 +298,10 @@ func FundExists(id int) (bool, error) {
 }
 
 func GetNAVHistory(fundID int, startDate string, endDate string) ([]models.NAVRecord, error) {
-	rows, err := DB.Query(`
+	ctx, cancel := queryCtx()
+	defer cancel()
+
+	rows, err := DB.QueryContext(ctx, `
 		SELECT date, nav
 		FROM nav
 		WHERE fund_id = $1
